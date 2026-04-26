@@ -162,6 +162,9 @@ function applyStateSync(s: SerializedAgentState): void {
     state.streamingThinkingDuration = s.streamingThinkingDuration ?? 0;
     const tabSwitched = prevTab !== state.activeTabId;
     render();
+    if (state.isStreaming && !state.streamingText && !state.streamingThinking) {
+        showPreparingPlaceholder();
+    }
     if (tabSwitched || !prevTab) {
         userHasScrolled = false;
         scrollToBottom(true);
@@ -183,6 +186,7 @@ function handleAgentEvent(event: any): void {
             state.isThinking = false;
             userHasScrolled = false;
             render();
+            showPreparingPlaceholder();
             break;
         case 'agent_end':
             state.isStreaming = false;
@@ -192,6 +196,7 @@ function handleAgentEvent(event: any): void {
             render();
             break;
         case 'tool_execution_start':
+            removePreparingPlaceholder();
             renderToolStart(event);
             break;
         case 'tool_execution_update':
@@ -199,6 +204,7 @@ function handleAgentEvent(event: any): void {
             break;
         case 'tool_execution_end':
             renderToolEnd(event);
+            showPreparingPlaceholder();
             break;
     }
 }
@@ -281,7 +287,7 @@ function render(): void {
         }
     }
 
-    const streamingContainer = el('div', 'streaming-message');
+    const streamingContainer = el('div', 'streaming-message message-group-assistant');
     streamingContainer.id = 'streaming-message';
     messagesContainer.appendChild(streamingContainer);
 
@@ -290,11 +296,13 @@ function render(): void {
 
     app.appendChild(messagesContainer);
 
+    const scrollWrap = el('div', 'scroll-btn-wrap');
     const scrollBtn = el('button', 'scroll-bottom-btn');
     scrollBtn.id = 'btn-scroll-bottom';
     scrollBtn.title = 'Scroll to bottom';
     scrollBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3L8 13M8 13L3 8M8 13L13 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    app.appendChild(scrollBtn);
+    scrollWrap.appendChild(scrollBtn);
+    app.appendChild(scrollWrap);
 
     app.appendChild(buildInputContainer());
 
@@ -522,7 +530,9 @@ function renderInlineFileChange(change: FileChangeInfo): void {
 
 // ── Inline diff card ──
 
-function buildDiffCard(change: FileChangeInfo): HTMLElement {
+function buildDiffCard(change: FileChangeInfo, msg?: any): HTMLElement {
+    const wrapper = el('div', 'tool-card-wrapper');
+
     const card = el('div', 'diff-card');
     card.id = `diff-${change.toolCallId}`;
 
@@ -553,7 +563,16 @@ function buildDiffCard(change: FileChangeInfo): HTMLElement {
         card.appendChild(diffView);
     }
 
-    return card;
+    wrapper.appendChild(card);
+
+    const ts = msg?.timestamp;
+    if (ts) {
+        const footer = el('div', 'tool-footer');
+        footer.textContent = formatTimestamp(ts);
+        wrapper.appendChild(footer);
+    }
+
+    return wrapper;
 }
 
 function renderDiffLines(diff: string): string {
@@ -588,25 +607,47 @@ function renderMessage(msg: any, index: number, turnNumber?: number): HTMLElemen
         if (toolName === 'edit' || toolName === 'write') {
             const matchingChange = findFileChangeForToolResult(msg);
             if (matchingChange) {
-                return buildDiffCard(matchingChange);
+                return buildDiffCard(matchingChange, msg);
             }
         }
         return buildToolResultCard(msg, state.messages, index);
     }
 
-    const wrapper = el('div', `message message-${role}`);
+    if (role === 'user') {
+        const group = el('div', 'message-group-user');
 
-    if (role === 'user' && turnNumber !== undefined && !state.isStreaming) {
-        const checkpointBtn = el('button', 'checkpoint-btn');
-        checkpointBtn.title = 'Restore to this checkpoint';
-        checkpointBtn.dataset.turn = String(turnNumber);
-        checkpointBtn.innerHTML = '&#8634;';
-        wrapper.appendChild(checkpointBtn);
+        const wrapper = el('div', `message message-${role}`);
+        if (turnNumber !== undefined && !state.isStreaming) {
+            const checkpointBtn = el('button', 'checkpoint-btn');
+            checkpointBtn.title = 'Restore to this checkpoint';
+            checkpointBtn.dataset.turn = String(turnNumber);
+            checkpointBtn.innerHTML = '&#8634;';
+            wrapper.appendChild(checkpointBtn);
+        }
+        const text = extractText(msg);
+        if (text) {
+            const content = el('div', 'message-content');
+            content.innerHTML = renderMarkdown(text);
+            wrapper.appendChild(content);
+        }
+        group.appendChild(wrapper);
+
+        const footer = buildMessageFooter(msg, index);
+        if (footer) {
+            group.appendChild(footer);
+        }
+
+        return group;
     }
+
+    // Assistant messages: wrap in a styled container
+    const group = el('div', 'message-group-assistant');
+
+    const wrapper = el('div', `message message-${role}`);
 
     const thinking = extractThinking(msg);
     if (thinking) {
-        wrapper.appendChild(buildThinkingBlock(thinking, false));
+        wrapper.appendChild(buildThinkingBlock(thinking, false, msg._thinkingDurationSec));
     }
 
     const text = extractText(msg);
@@ -616,9 +657,14 @@ function renderMessage(msg: any, index: number, turnNumber?: number): HTMLElemen
         wrapper.appendChild(content);
     }
 
-    // Don't render tool calls from assistant messages -- they appear
-    // merged into the subsequent toolResult messages instead
-    return wrapper;
+    group.appendChild(wrapper);
+
+    const footer = buildMessageFooter(msg, index);
+    if (footer) {
+        group.appendChild(footer);
+    }
+
+    return group;
 }
 
 function extractToolCalls(msg: any): any[] {
@@ -640,11 +686,27 @@ function findFileChangeForToolResult(msg: any): FileChangeInfo | undefined {
     return undefined;
 }
 
+function removePreparingPlaceholder(): void {
+    document.getElementById('preparing-placeholder')?.remove();
+}
+
+function showPreparingPlaceholder(): void {
+    const container = document.getElementById('streaming-message');
+    if (!container) return;
+    if (document.getElementById('preparing-placeholder')) return;
+    const ph = el('div', 'preparing-placeholder');
+    ph.id = 'preparing-placeholder';
+    ph.textContent = 'Preparing next moves...';
+    container.appendChild(ph);
+    scrollToBottom();
+}
+
 function renderStreamingContent(): void {
     const container = document.getElementById('streaming-message');
     if (!container) return;
 
     if (!state.streamingText && !state.streamingThinking) return;
+    removePreparingPlaceholder();
 
     if (!container.querySelector('.message')) {
         container.innerHTML = `
@@ -764,7 +826,8 @@ function formatToolArgs(args: any): string {
 
 function buildStatusHtml(status: string): string {
     if (status === 'done') return '';
-    return `<span class="tool-status ${status}">${status}</span>`;
+    const label = status.charAt(0).toUpperCase() + status.slice(1);
+    return `<span class="tool-status ${status}">${label}</span>`;
 }
 
 function buildToolCard(tc: any): HTMLElement {
@@ -794,6 +857,32 @@ function buildToolCard(tc: any): HTMLElement {
     return card;
 }
 
+function buildToolFooter(msg: any, allMessages: any[], msgIndex: number): HTMLElement | null {
+    const parts: string[] = [];
+    const ts = msg.timestamp;
+    if (ts) parts.push(formatTimestamp(ts));
+
+    const precedingAssistant = findPrecedingAssistant(allMessages, msgIndex);
+    if (precedingAssistant?.usage) {
+        const u = precedingAssistant.usage;
+        if (u.input > 0) parts.push(`${u.input.toLocaleString()} in`);
+        if (u.output > 0) parts.push(`${u.output.toLocaleString()} out`);
+    }
+
+    if (parts.length === 0) return null;
+    const footer = el('div', 'tool-footer');
+    footer.textContent = parts.join(' · ');
+    return footer;
+}
+
+function findPrecedingAssistant(messages: any[], beforeIndex: number): any | null {
+    for (let i = beforeIndex - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') return messages[i];
+        if (messages[i].role === 'user') return null;
+    }
+    return null;
+}
+
 function buildToolResultCard(msg: any, allMessages: any[], msgIndex: number): HTMLElement {
     const isError = msg.isError ?? false;
     const toolName = msg.toolName ?? '';
@@ -812,7 +901,11 @@ function buildToolResultCard(msg: any, allMessages: any[], msgIndex: number): HT
     const resultContent = extractText(msg);
     const hasBody = !!(resultContent || isBash);
 
+    const footer = buildToolFooter(msg, allMessages, msgIndex);
+
     if (hasBody) {
+        const wrapper = el('div', 'tool-card-wrapper');
+
         const details = document.createElement('details');
         details.className = `tool-card tool-expandable${isRead ? ' tool-clickable' : ''}`;
         if (isRead && filePath) details.dataset.filepath = filePath;
@@ -832,9 +925,13 @@ function buildToolResultCard(msg: any, allMessages: any[], msgIndex: number): HT
         if (!resultContent) result.classList.add('empty');
         body.appendChild(result);
         details.appendChild(body);
+        wrapper.appendChild(details);
 
-        return details;
+        if (footer) wrapper.appendChild(footer);
+        return wrapper;
     }
+
+    const wrapper = el('div', 'tool-card-wrapper');
 
     const card = el('div', `tool-card${isRead ? ' tool-clickable' : ''}`);
     if (isRead && filePath) card.dataset.filepath = filePath;
@@ -847,7 +944,9 @@ function buildToolResultCard(msg: any, allMessages: any[], msgIndex: number): HT
         </div>
     `;
 
-    return card;
+    wrapper.appendChild(card);
+    if (footer) wrapper.appendChild(footer);
+    return wrapper;
 }
 
 function findToolCallInMessages(messages: any[], beforeIndex: number, toolCallId: string): any | undefined {
@@ -989,10 +1088,17 @@ function renderToolEnd(event: any): void {
 
 // ── Thinking block ──
 
-function buildThinkingBlock(text: string, active: boolean): HTMLElement {
+function buildThinkingBlock(text: string, active: boolean, durationSec?: number): HTMLElement {
     const details = document.createElement('details');
     details.className = `thinking-block${active ? ' active' : ''}`;
-    const label = active ? 'Thinking...' : 'Thought';
+    let label: string;
+    if (active) {
+        label = 'Thinking...';
+    } else if (durationSec && durationSec > 0) {
+        label = `Thought for ${durationSec} second${durationSec !== 1 ? 's' : ''}`;
+    } else {
+        label = 'Thought';
+    }
     details.innerHTML = `
         <summary class="thinking-summary">
             <span class="thinking-indicator"></span> ${label}
@@ -1442,6 +1548,59 @@ function escHtml(s: string): string {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+}
+
+function formatTimestamp(ts: number): string {
+    if (!ts) return '';
+    const d = new Date(ts < 1e12 ? ts * 1000 : ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function buildMessageFooter(msg: any, index: number): HTMLElement | null {
+    const role = msg.role ?? 'unknown';
+    if (role !== 'user' && role !== 'assistant') return null;
+
+    const parts: string[] = [];
+
+    const ts = msg.timestamp;
+    if (ts) {
+        parts.push(formatTimestamp(ts));
+    }
+
+    if (role === 'user') {
+        // Show input tokens from the next assistant message's usage
+        for (let j = index + 1; j < state.messages.length; j++) {
+            const next = state.messages[j];
+            if (next.role === 'assistant' && next.usage && next.usage.input > 0) {
+                parts.push(`${next.usage.input.toLocaleString()} input tokens`);
+                break;
+            }
+            if (next.role === 'user') break;
+        }
+    }
+
+    if (role === 'assistant') {
+        if (msg._messageEndTime && msg.timestamp) {
+            const startMs = msg.timestamp < 1e12 ? msg.timestamp * 1000 : msg.timestamp;
+            const durationSec = (msg._messageEndTime - startMs) / 1000;
+            const usage = msg.usage;
+            if (usage && usage.output > 0 && durationSec > 0) {
+                const tokPerSec = usage.output / durationSec;
+                parts.push(`${tokPerSec.toFixed(1)} tok/s`);
+            }
+        }
+
+        const usage = msg.usage;
+        if (usage && usage.output > 0) {
+            parts.push(`${usage.output.toLocaleString()} output tokens`);
+        }
+    }
+
+    if (parts.length === 0) return null;
+
+    const footer = el('div', 'message-footer');
+    footer.textContent = parts.join(' · ');
+    return footer;
 }
 
 function extractThinking(msg: any): string {

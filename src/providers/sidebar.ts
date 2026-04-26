@@ -4,6 +4,11 @@ import type { ClientMessage, ServerMessage, TabInfo } from '../shared/protocol';
 import { DiffManager } from './diff';
 import { CheckpointManager } from './checkpoint';
 
+interface MessageMeta {
+    thinkingDurationSec: number;
+    messageEndTime: number;
+}
+
 interface TabState {
     id: string;
     name: string;
@@ -17,6 +22,8 @@ interface TabState {
     isThinking: boolean;
     thinkingStartTime: number;
     streamingThinkingDuration: number;
+    agentStartTime: number;
+    messageMeta: Map<number, MessageMeta>;
 }
 
 let tabIdCounter = 0;
@@ -43,6 +50,8 @@ function makeTabState(
         isThinking: false,
         thinkingStartTime: 0,
         streamingThinkingDuration: 0,
+        agentStartTime: 0,
+        messageMeta: new Map(),
     };
 }
 
@@ -142,9 +151,29 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             tab.isThinking = false;
             tab.thinkingStartTime = 0;
             tab.streamingThinkingDuration = 0;
+            tab.agentStartTime = Date.now();
             if (isActive) {
                 vscode.commands.executeCommand('setContext', 'pi-agent.isStreaming', true);
             }
+        }
+
+        if (event.type === 'message_end') {
+            const msgs = tab.session.getMessages();
+            let assistantOrdinal = 0;
+            let lastOrdinal = -1;
+            for (let i = 0; i < msgs.length; i++) {
+                if (msgs[i].role === 'assistant') {
+                    lastOrdinal = assistantOrdinal;
+                    assistantOrdinal++;
+                }
+            }
+            if (lastOrdinal >= 0) {
+                tab.messageMeta.set(lastOrdinal, {
+                    thinkingDurationSec: tab.streamingThinkingDuration,
+                    messageEndTime: Date.now(),
+                });
+            }
+            tab.streamingThinkingDuration = 0;
         }
 
         if (event.type === 'agent_end') {
@@ -153,6 +182,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             tab.isThinking = false;
             tab.thinkingStartTime = 0;
             tab.streamingThinkingDuration = 0;
+            tab.agentStartTime = 0;
             if (isActive) {
                 vscode.commands.executeCommand('setContext', 'pi-agent.isStreaming', false);
             }
@@ -229,6 +259,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         state.isThinking = tab.isThinking;
         state.thinkingStartTime = tab.thinkingStartTime;
         state.streamingThinkingDuration = tab.streamingThinkingDuration;
+        let assistantOrdinal = 0;
+        for (let i = 0; i < state.messages.length; i++) {
+            if (state.messages[i].role === 'assistant') {
+                const meta = tab.messageMeta.get(assistantOrdinal);
+                if (meta) {
+                    state.messages[i]._thinkingDurationSec = meta.thinkingDurationSec;
+                    state.messages[i]._messageEndTime = meta.messageEndTime;
+                }
+                assistantOrdinal++;
+            }
+        }
         this._post({ type: 'stateSync', state });
     }
 
@@ -299,6 +340,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     tab.isThinking = false;
                     tab.thinkingStartTime = 0;
                     tab.streamingThinkingDuration = 0;
+                    tab.agentStartTime = 0;
+                    tab.messageMeta.clear();
                     this.sendStateSync();
                     break;
                 case 'loadSession':
@@ -312,6 +355,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     tab.isThinking = false;
                     tab.thinkingStartTime = 0;
                     tab.streamingThinkingDuration = 0;
+                    tab.agentStartTime = 0;
+                    tab.messageMeta.clear();
                     this._updateTabName(tab);
                     this.sendStateSync();
                     break;
