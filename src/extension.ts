@@ -22,16 +22,8 @@ export async function activate(context: vscode.ExtensionContext) {
         const terminalManager = new TerminalManager(piSession);
         const diffManager = new DiffManager(piSession, checkpointManager);
         const sidebarProvider = new SidebarProvider(
-            context.extensionUri, piSession, diffManager, checkpointManager,
+            context.extensionUri, piSession, diffManager, checkpointManager, outputChannel,
         );
-
-        const streamingContext = 'pi-agent.isStreaming';
-        piSession.events.on('agent_start', () => {
-            vscode.commands.executeCommand('setContext', streamingContext, true);
-        });
-        piSession.events.on('agent_end', () => {
-            vscode.commands.executeCommand('setContext', streamingContext, false);
-        });
 
         context.subscriptions.push(
             vscode.window.registerWebviewViewProvider('pi-agent.chat', sidebarProvider),
@@ -76,6 +68,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 }
 
-export function deactivate() {
-    return piSession?.dispose();
+export async function deactivate() {
+    await piSession?.dispose();
+    await PiSessionManager.disposeGlobal();
 }

@@ -1,29 +1,79 @@
 import * as vscode from 'vscode';
-import type { PiSessionManager } from '../pi/session';
-import type { ClientMessage, ServerMessage } from '../shared/protocol';
-import type { DiffManager } from './diff';
-import type { CheckpointManager } from './checkpoint';
+import { PiSessionManager } from '../pi/session';
+import type { ClientMessage, ServerMessage, TabInfo } from '../shared/protocol';
+import { DiffManager } from './diff';
+import { CheckpointManager } from './checkpoint';
+
+interface TabState {
+    id: string;
+    name: string;
+    session: PiSessionManager;
+    diffManager: DiffManager;
+    checkpointManager: CheckpointManager;
+    turnCounter: number;
+    suspendedMessages: any[];
+    streamingText: string;
+    streamingThinking: string;
+    isThinking: boolean;
+    thinkingStartTime: number;
+    streamingThinkingDuration: number;
+}
+
+let tabIdCounter = 0;
+function nextTabId(): string {
+    return `tab-${++tabIdCounter}`;
+}
+
+function makeTabState(
+    id: string,
+    session: PiSessionManager,
+    diffManager: DiffManager,
+    checkpointManager: CheckpointManager,
+): TabState {
+    return {
+        id,
+        name: 'New Agent',
+        session,
+        diffManager,
+        checkpointManager,
+        turnCounter: 0,
+        suspendedMessages: [],
+        streamingText: '',
+        streamingThinking: '',
+        isThinking: false,
+        thinkingStartTime: 0,
+        streamingThinkingDuration: 0,
+    };
+}
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _extensionUri: vscode.Uri;
-    private _session: PiSessionManager;
-    private _diffManager: DiffManager;
-    private _checkpointManager: CheckpointManager;
-    private _unsubscribers: (() => void)[] = [];
-    private _turnCounter = 0;
-    private _suspendedMessages: any[] = [];
+    private _outputChannel: vscode.OutputChannel;
+
+    private _tabs = new Map<string, TabState>();
+    private _activeTabId = '';
+    private _tabSubscriptions = new Map<string, (() => void)[]>();
 
     constructor(
         extensionUri: vscode.Uri,
-        session: PiSessionManager,
-        diffManager: DiffManager,
-        checkpointManager: CheckpointManager,
+        initialSession: PiSessionManager,
+        initialDiffManager: DiffManager,
+        initialCheckpointManager: CheckpointManager,
+        outputChannel: vscode.OutputChannel,
     ) {
         this._extensionUri = extensionUri;
-        this._session = session;
-        this._diffManager = diffManager;
-        this._checkpointManager = checkpointManager;
+        this._outputChannel = outputChannel;
+
+        const id = nextTabId();
+        const tab = makeTabState(id, initialSession, initialDiffManager, initialCheckpointManager);
+        this._tabs.set(id, tab);
+        this._activeTabId = id;
+        this._subscribeTab(tab);
+    }
+
+    private get _activeTab(): TabState {
+        return this._tabs.get(this._activeTabId)!;
     }
 
     resolveWebviewView(
@@ -44,47 +94,149 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             this._handleMessage(msg);
         });
 
-        this._unsubscribers.push(
-            this._session.events.onAll((event) => {
-                this._post({ type: 'agentEvent', event: safeSerialize(event) });
-
-                if (
-                    event.type === 'agent_start' ||
-                    event.type === 'agent_end' ||
-                    event.type === 'message_end' ||
-                    event.type === 'turn_end'
-                ) {
-                    this.sendStateSync();
-                }
-            }),
-        );
-
-        this._unsubscribers.push(
-            this._diffManager.onFileChange((change) => {
-                this._post({ type: 'fileChange', change });
-            }),
-        );
-
         webviewView.onDidDispose(() => {
-            for (const unsub of this._unsubscribers) unsub();
-            this._unsubscribers = [];
+            for (const [, unsubs] of this._tabSubscriptions) {
+                for (const unsub of unsubs) unsub();
+            }
+            this._tabSubscriptions.clear();
         });
 
         this._post({ type: 'ready' });
         this.sendStateSync();
     }
 
+    private _subscribeTab(tab: TabState): void {
+        const unsubs: (() => void)[] = [];
+
+        unsubs.push(
+            tab.session.events.onAll((event) => {
+                this._handleTabEvent(tab, event);
+            }),
+        );
+
+        unsubs.push(
+            tab.diffManager.onFileChange((change) => {
+                if (tab.id === this._activeTabId) {
+                    this._post({ type: 'fileChange', change });
+                }
+            }),
+        );
+
+        this._tabSubscriptions.set(tab.id, unsubs);
+    }
+
+    private _unsubscribeTab(tabId: string): void {
+        const unsubs = this._tabSubscriptions.get(tabId);
+        if (unsubs) {
+            for (const unsub of unsubs) unsub();
+            this._tabSubscriptions.delete(tabId);
+        }
+    }
+
+    private _handleTabEvent(tab: TabState, event: any): void {
+        const isActive = tab.id === this._activeTabId;
+
+        if (event.type === 'agent_start') {
+            tab.streamingText = '';
+            tab.streamingThinking = '';
+            tab.isThinking = false;
+            tab.thinkingStartTime = 0;
+            tab.streamingThinkingDuration = 0;
+            if (isActive) {
+                vscode.commands.executeCommand('setContext', 'pi-agent.isStreaming', true);
+            }
+        }
+
+        if (event.type === 'agent_end') {
+            tab.streamingText = '';
+            tab.streamingThinking = '';
+            tab.isThinking = false;
+            tab.thinkingStartTime = 0;
+            tab.streamingThinkingDuration = 0;
+            if (isActive) {
+                vscode.commands.executeCommand('setContext', 'pi-agent.isStreaming', false);
+            }
+        }
+
+        if (event.type === 'message_update' && event.assistantMessageEvent) {
+            const ae = event.assistantMessageEvent;
+            switch (ae.type) {
+                case 'thinking_start':
+                    tab.isThinking = true;
+                    tab.streamingThinking = '';
+                    tab.thinkingStartTime = Date.now();
+                    tab.streamingThinkingDuration = 0;
+                    break;
+                case 'thinking_delta':
+                    tab.streamingThinking += ae.delta ?? '';
+                    break;
+                case 'thinking_end':
+                    tab.isThinking = false;
+                    if (tab.thinkingStartTime > 0) {
+                        tab.streamingThinkingDuration = Math.round(
+                            (Date.now() - tab.thinkingStartTime) / 1000
+                        );
+                    }
+                    break;
+                case 'text_delta':
+                    tab.streamingText += ae.delta ?? '';
+                    break;
+            }
+        }
+
+        this._updateTabName(tab);
+
+        if (isActive) {
+            this._post({ type: 'agentEvent', event: safeSerialize(event) });
+
+            if (
+                event.type === 'agent_start' ||
+                event.type === 'agent_end' ||
+                event.type === 'message_end' ||
+                event.type === 'turn_end'
+            ) {
+                this.sendStateSync();
+            }
+        }
+    }
+
+    private _updateTabName(tab: TabState): void {
+        const sessionName = tab.session.session?.sessionName;
+        if (sessionName && tab.name !== sessionName) {
+            tab.name = sessionName;
+        }
+    }
+
     sendStateSync(): void {
-        const state = this._session.serializeState();
-        if (this._suspendedMessages.length > 0) {
+        const tab = this._activeTab;
+        if (!tab) return;
+
+        const state = tab.session.serializeState();
+        if (tab.suspendedMessages.length > 0) {
             state.messages = [
                 ...state.messages,
-                ...this._suspendedMessages.map((m: any) => safeSerialize(m)),
+                ...tab.suspendedMessages.map((m: any) => safeSerialize(m)),
             ];
         }
-        state.fileChanges = this._diffManager.fileChanges;
-        state.rollbackPoint = this._checkpointManager.rollbackPoint;
+        state.fileChanges = tab.diffManager.fileChanges;
+        state.rollbackPoint = tab.checkpointManager.rollbackPoint;
+        state.tabs = this._getTabInfos();
+        state.activeTabId = this._activeTabId;
+        state.streamingText = tab.streamingText;
+        state.streamingThinking = tab.streamingThinking;
+        state.isThinking = tab.isThinking;
+        state.thinkingStartTime = tab.thinkingStartTime;
+        state.streamingThinkingDuration = tab.streamingThinkingDuration;
         this._post({ type: 'stateSync', state });
+    }
+
+    private _getTabInfos(): TabInfo[] {
+        return [...this._tabs.entries()].map(([id, tab]) => ({
+            id,
+            name: tab.name,
+            isActive: id === this._activeTabId,
+            isStreaming: tab.session.session?.isStreaming ?? false,
+        }));
     }
 
     private _post(message: ServerMessage): void {
@@ -93,63 +245,77 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     private async _handleMessage(msg: ClientMessage): Promise<void> {
         try {
+            const tab = this._activeTab;
+
             switch (msg.type) {
                 case 'prompt': {
-                    if (this._checkpointManager.rollbackPoint !== null) {
-                        this._checkpointManager.discardSuspended();
-                        this._diffManager.discardSuspended();
-                        this._suspendedMessages = [];
+                    if (tab.checkpointManager.rollbackPoint !== null) {
+                        tab.checkpointManager.discardSuspended();
+                        tab.diffManager.discardSuspended();
+                        tab.suspendedMessages = [];
                     }
-                    this._turnCounter++;
-                    const turnIdx = this._turnCounter;
-                    this._checkpointManager.startTurn(turnIdx);
-                    this._diffManager.setCurrentTurn(turnIdx);
-                    await this._session.prompt(msg.text);
+                    tab.turnCounter++;
+                    const turnIdx = tab.turnCounter;
+                    tab.checkpointManager.startTurn(turnIdx);
+                    tab.diffManager.setCurrentTurn(turnIdx);
+                    await tab.session.prompt(msg.text);
                     break;
                 }
                 case 'steer':
-                    await this._session.steer(msg.text);
+                    await tab.session.steer(msg.text);
                     break;
                 case 'followUp':
-                    await this._session.followUp(msg.text);
+                    await tab.session.followUp(msg.text);
                     break;
                 case 'abort':
-                    await this._session.abort();
+                    await tab.session.abort();
                     break;
                 case 'getModels': {
-                    const models = this._session.getModels();
-                    const current = this._session.getCurrentModel();
-                    const thinkingLevel = this._session.getThinkingLevel();
+                    const models = tab.session.getModels();
+                    const current = tab.session.getCurrentModel();
+                    const thinkingLevel = tab.session.getThinkingLevel();
                     this._post({ type: 'models', models, current, thinkingLevel });
                     break;
                 }
                 case 'setModel':
-                    await this._session.setModel(msg.provider, msg.modelId);
+                    await tab.session.setModel(msg.provider, msg.modelId);
                     this.sendStateSync();
                     break;
                 case 'setThinkingLevel':
-                    this._session.setThinkingLevel(msg.level);
+                    tab.session.setThinkingLevel(msg.level);
                     this.sendStateSync();
                     break;
                 case 'newSession':
-                    await this._session.newSession();
-                    this._diffManager.clearAll();
-                    this._checkpointManager.clearAll();
-                    this._turnCounter = 0;
-                    this._suspendedMessages = [];
+                    await tab.session.newSession();
+                    tab.diffManager.clearAll();
+                    tab.checkpointManager.clearAll();
+                    tab.turnCounter = 0;
+                    tab.suspendedMessages = [];
+                    tab.name = 'New Agent';
+                    tab.streamingText = '';
+                    tab.streamingThinking = '';
+                    tab.isThinking = false;
+                    tab.thinkingStartTime = 0;
+                    tab.streamingThinkingDuration = 0;
                     this.sendStateSync();
                     break;
                 case 'loadSession':
-                    await this._session.loadSession(msg.sessionPath);
-                    this._diffManager.clearAll();
-                    this._checkpointManager.clearAll();
-                    this._turnCounter = 0;
-                    this._suspendedMessages = [];
+                    await tab.session.loadSession(msg.sessionPath);
+                    tab.diffManager.clearAll();
+                    tab.checkpointManager.clearAll();
+                    tab.turnCounter = 0;
+                    tab.suspendedMessages = [];
+                    tab.streamingText = '';
+                    tab.streamingThinking = '';
+                    tab.isThinking = false;
+                    tab.thinkingStartTime = 0;
+                    tab.streamingThinkingDuration = 0;
+                    this._updateTabName(tab);
                     this.sendStateSync();
                     break;
                 case 'getSessions': {
-                    const sessions = await this._session.getSessions();
-                    const currentId = this._session.session?.sessionId;
+                    const sessions = await tab.session.getSessions();
+                    const currentId = tab.session.session?.sessionId;
                     this._post({ type: 'sessions', sessions, currentSessionId: currentId });
                     break;
                 }
@@ -165,25 +331,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     break;
                 }
                 case 'openDiff':
-                    await this._diffManager.openDiff(msg.filePath, msg.toolCallId);
+                    await tab.diffManager.openDiff(msg.filePath, msg.toolCallId);
                     break;
                 case 'undoFileChange':
-                    await this._diffManager.undoFileChange(msg.filePath, msg.toolCallId);
+                    await tab.diffManager.undoFileChange(msg.filePath, msg.toolCallId);
                     this.sendStateSync();
                     break;
                 case 'undoAllFileChanges':
-                    await this._diffManager.undoAllFileChanges();
+                    await tab.diffManager.undoAllFileChanges();
                     this.sendStateSync();
                     break;
                 case 'restoreCheckpoint': {
-                    const restored = await this._checkpointManager.restoreCheckpoint(msg.messageIndex);
-                    this._diffManager.suspendChangesAfter(msg.messageIndex);
+                    const restored = await tab.checkpointManager.restoreCheckpoint(msg.messageIndex);
+                    tab.diffManager.suspendChangesAfter(msg.messageIndex);
 
-                    const allMsgs = this._session.getMessages();
+                    const allMsgs = tab.session.getMessages();
                     const cutoff = this._findCutoffIndex(allMsgs, msg.messageIndex);
                     if (cutoff >= 0 && cutoff < allMsgs.length) {
-                        this._suspendedMessages = allMsgs.slice(cutoff);
-                        this._session.setMessages(allMsgs.slice(0, cutoff));
+                        tab.suspendedMessages = allMsgs.slice(cutoff);
+                        tab.session.setMessages(allMsgs.slice(0, cutoff));
                     }
 
                     if (restored.length > 0) {
@@ -195,13 +361,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     break;
                 }
                 case 'redoCheckpoint': {
-                    const redone = await this._checkpointManager.redoCheckpoint();
-                    this._diffManager.redoChanges();
+                    const redone = await tab.checkpointManager.redoCheckpoint();
+                    tab.diffManager.redoChanges();
 
-                    if (this._suspendedMessages.length > 0) {
-                        const current = this._session.getMessages();
-                        this._session.setMessages([...current, ...this._suspendedMessages]);
-                        this._suspendedMessages = [];
+                    if (tab.suspendedMessages.length > 0) {
+                        const current = tab.session.getMessages();
+                        tab.session.setMessages([...current, ...tab.suspendedMessages]);
+                        tab.suspendedMessages = [];
                     }
 
                     if (redone.length > 0) {
@@ -226,16 +392,73 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     });
                     break;
                 }
+                case 'createTab':
+                    await this._createTab();
+                    break;
+                case 'closeTab':
+                    await this._closeTab(msg.tabId);
+                    break;
+                case 'switchTab':
+                    this._switchTab(msg.tabId);
+                    break;
             }
         } catch (err: any) {
             this._post({ type: 'error', message: err.message ?? String(err) });
         }
     }
 
-    /**
-     * Finds the index in the messages array where the (N+1)th user message starts.
-     * rollbackPoint = N means keep through turn N, remove from turn N+1 onward.
-     */
+    private async _createTab(): Promise<void> {
+        const newSession = new PiSessionManager(this._outputChannel);
+        await newSession.initialize();
+
+        const newCheckpoint = new CheckpointManager();
+        const newDiff = new DiffManager(newSession, newCheckpoint);
+
+        const id = nextTabId();
+        const tab = makeTabState(id, newSession, newDiff, newCheckpoint);
+        this._tabs.set(id, tab);
+        this._subscribeTab(tab);
+
+        this._activeTabId = id;
+        this.sendStateSync();
+    }
+
+    private async _closeTab(tabId: string): Promise<void> {
+        if (this._tabs.size <= 1) return;
+
+        const tab = this._tabs.get(tabId);
+        if (!tab) return;
+
+        const wasActive = tabId === this._activeTabId;
+
+        this._unsubscribeTab(tabId);
+        tab.diffManager.dispose();
+        tab.checkpointManager.dispose();
+        await tab.session.dispose();
+        this._tabs.delete(tabId);
+
+        if (wasActive) {
+            this._activeTabId = this._tabs.keys().next().value!;
+        }
+
+        this.sendStateSync();
+    }
+
+    private _switchTab(tabId: string): void {
+        if (!this._tabs.has(tabId) || tabId === this._activeTabId) return;
+
+        this._activeTabId = tabId;
+
+        const tab = this._activeTab;
+        if (tab.session.session?.isStreaming) {
+            vscode.commands.executeCommand('setContext', 'pi-agent.isStreaming', true);
+        } else {
+            vscode.commands.executeCommand('setContext', 'pi-agent.isStreaming', false);
+        }
+
+        this.sendStateSync();
+    }
+
     private _findCutoffIndex(messages: any[], rollbackPoint: number): number {
         let userMsgCount = 0;
         for (let i = 0; i < messages.length; i++) {
