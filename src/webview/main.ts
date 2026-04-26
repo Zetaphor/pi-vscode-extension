@@ -304,14 +304,33 @@ function buildInputContainer(): HTMLElement {
         ? 'Type to steer Pi, or press Esc to stop...'
         : 'Ask Pi anything...';
 
-    area.innerHTML = `
-        <textarea id="input" placeholder="${placeholder}" rows="1"></textarea>
-        <div class="input-actions">
-            ${state.isStreaming ? '<button id="btn-abort" class="abort-btn" title="Stop generation (Esc)">&#9632;</button>' : ''}
-            <button id="btn-send" class="send-btn">${state.isStreaming ? 'Steer' : 'Send'}</button>
-        </div>
-    `;
+    area.innerHTML = `<textarea id="input" placeholder="${placeholder}" rows="1"></textarea>`;
     container.appendChild(area);
+
+    const footer = el('div', 'input-footer');
+    const modelName = state.model?.name ?? state.model?.id ?? '';
+
+    let contextHtml = '';
+    if (state.contextUsage) {
+        const cu = state.contextUsage;
+        const tokensK = cu.tokens != null ? formatTokenCount(cu.tokens) : null;
+        const windowK = formatTokenCount(cu.contextWindow);
+        const pct = cu.percent != null ? Math.round(cu.percent) : null;
+        if (tokensK !== null && pct !== null) {
+            contextHtml = `<span class="footer-context" title="Context: ${tokensK} / ${windowK} tokens (${pct}%)">${tokensK} / ${windowK} &middot; ${pct}%</span>`;
+        } else {
+            contextHtml = `<span class="footer-context" title="Context window: ${windowK} tokens">${windowK}</span>`;
+        }
+    }
+
+    footer.innerHTML = `
+        <span class="footer-model">${escHtml(modelName)}</span>
+        <span class="footer-spacer"></span>
+        ${contextHtml}
+        ${state.isStreaming ? '<button id="btn-abort" class="abort-btn" title="Stop generation (Esc)">&#9632; Stop</button>' : ''}
+        <button id="btn-send" class="send-btn" title="${state.isStreaming ? 'Steer' : 'Send'}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3L8 13M8 3L3 8M8 3L13 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    `;
+    container.appendChild(footer);
     return container;
 }
 
@@ -505,7 +524,7 @@ function renderMessage(msg: any, index: number, turnNumber?: number): HTMLElemen
 
     const wrapper = el('div', `message message-${role}`);
 
-    if (role === 'user' && turnNumber !== undefined) {
+    if (role === 'user' && turnNumber !== undefined && !state.isStreaming) {
         const checkpointBtn = el('button', 'checkpoint-btn');
         checkpointBtn.title = 'Restore to this checkpoint';
         checkpointBtn.dataset.turn = String(turnNumber);
@@ -1205,6 +1224,12 @@ function extractText(msg: any): string {
             .join('');
     }
     return msg.text ?? '';
+}
+
+function formatTokenCount(n: number): string {
+    if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+    return String(n);
 }
 
 function truncate(s: string, maxLen: number): string {
