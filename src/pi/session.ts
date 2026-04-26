@@ -234,6 +234,9 @@ export class PiSessionManager {
         this._session?.dispose();
         this._session = undefined;
         this.events.clear();
+    }
+
+    static async disposeGlobal(): Promise<void> {
         disposeAuthStorage();
         disposeModelRegistry();
     }

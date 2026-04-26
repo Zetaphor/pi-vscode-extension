@@ -15,6 +15,13 @@ export interface FileChangeInfo {
     turnIndex: number;
 }
 
+export interface TabInfo {
+    id: string;
+    name: string;
+    isActive: boolean;
+    isStreaming: boolean;
+}
+
 export interface SerializedAgentState {
     messages: any[];
     model?: { provider: string; id: string; name?: string };
@@ -28,6 +35,13 @@ export interface SerializedAgentState {
     contextUsage?: ContextUsageInfo;
     fileChanges?: FileChangeInfo[];
     rollbackPoint?: number | null;
+    tabs?: TabInfo[];
+    activeTabId?: string;
+    streamingText?: string;
+    streamingThinking?: string;
+    isThinking?: boolean;
+    thinkingStartTime?: number;
+    streamingThinkingDuration?: number;
 }
 
 export interface ModelInfo {
@@ -64,7 +78,10 @@ export type ClientMessage =
     | { type: 'undoAllFileChanges' }
     | { type: 'restoreCheckpoint'; messageIndex: number }
     | { type: 'redoCheckpoint' }
-    | { type: 'confirmAction'; action: string; message: string; payload?: any };
+    | { type: 'confirmAction'; action: string; message: string; payload?: any }
+    | { type: 'createTab' }
+    | { type: 'closeTab'; tabId: string }
+    | { type: 'switchTab'; tabId: string };
 
 // Extension -> Webview messages
 export type ServerMessage =
