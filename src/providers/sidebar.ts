@@ -157,7 +157,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        if (event.type === 'message_end') {
+        if (event.type === 'message_end' && event.message?.role === 'assistant') {
             const msgs = tab.session.getMessages();
             let assistantOrdinal = 0;
             let lastOrdinal = -1;
