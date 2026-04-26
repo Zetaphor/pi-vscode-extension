@@ -250,6 +250,10 @@ export class DiffManager implements vscode.Disposable {
     }
 
     private _resolveFilePath(filePath: string): string {
+        if (filePath.startsWith('~/') || filePath === '~') {
+            const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+            filePath = path.join(home, filePath.slice(2));
+        }
         if (path.isAbsolute(filePath)) return filePath;
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         return root ? path.join(root, filePath) : path.resolve(filePath);
