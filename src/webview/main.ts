@@ -162,8 +162,8 @@ function applyStateSync(s: SerializedAgentState): void {
     state.streamingThinkingDuration = s.streamingThinkingDuration ?? 0;
     const tabSwitched = prevTab !== state.activeTabId;
     render();
-    if (state.isStreaming && !state.streamingText && !state.streamingThinking) {
-        showPreparingPlaceholder();
+    if (state.isStreaming) {
+        ensurePreparingPlaceholder();
     }
     if (tabSwitched || !prevTab) {
         userHasScrolled = false;
@@ -641,16 +641,23 @@ function renderMessage(msg: any, index: number, turnNumber?: number): HTMLElemen
     }
 
     // Assistant messages: wrap in a styled container
+    const thinking = extractThinking(msg);
+    const text = extractText(msg);
+
+    if (!thinking && !text) {
+        const empty = el('div');
+        empty.style.display = 'none';
+        return empty;
+    }
+
     const group = el('div', 'message-group-assistant');
 
     const wrapper = el('div', `message message-${role}`);
 
-    const thinking = extractThinking(msg);
     if (thinking) {
         wrapper.appendChild(buildThinkingBlock(thinking, false, msg._thinkingDurationSec));
     }
 
-    const text = extractText(msg);
     if (text) {
         const content = el('div', 'message-content');
         content.innerHTML = renderMarkdown(text);
@@ -699,6 +706,15 @@ function showPreparingPlaceholder(): void {
     ph.textContent = 'Preparing next moves...';
     container.appendChild(ph);
     scrollToBottom();
+}
+
+function ensurePreparingPlaceholder(): void {
+    const container = document.getElementById('streaming-message');
+    if (!container) return;
+    const hasRunningTool = container.querySelector('.tool-status.running');
+    if (!hasRunningTool) {
+        showPreparingPlaceholder();
+    }
 }
 
 function renderStreamingContent(): void {
