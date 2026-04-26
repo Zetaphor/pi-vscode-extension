@@ -304,7 +304,7 @@ body {
 .messages {
     flex: 1;
     overflow-y: auto;
-    padding: 5px 0 12px 0;
+    padding: 0 0 12px 0;
     scroll-behavior: smooth;
 }
 .messages::-webkit-scrollbar { width: 6px; }
@@ -327,7 +327,7 @@ body {
 .message-group-assistant {
     background: var(--card-bg);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 0;
     margin: 0 0 8px 0;
     overflow: hidden;
 }
@@ -339,7 +339,7 @@ body {
 .message-user {
     background: var(--input-bg);
     border-bottom: 1px solid var(--border);
-    border-radius: 10px 10px 0 0;
+    border-radius: 0;
     padding: 16px 40px 16px 16px;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
     position: relative;
@@ -360,14 +360,14 @@ body {
 .message-group-user > .message-footer {
     background: var(--input-bg);
     padding: 5px 12px;
-    border-radius: 0 0 10px 10px;
+    border-radius: 0;
     border-top: 1px solid var(--border);
 }
 
 .message-group-assistant > .message-footer {
     border-top: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.02);
-    border-radius: 0 0 10px 10px;
+    border-radius: 0;
 }
 
 .message-role {
@@ -500,7 +500,7 @@ body {
 .tool-card {
     margin: 0 0 8px 0;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 0;
     background: var(--card-bg);
     overflow: hidden;
 }
@@ -605,20 +605,20 @@ body {
 }
 .tool-card-wrapper > .tool-card {
     margin-bottom: 0;
-    border-radius: 10px 10px 0 0;
+    border-radius: 0;
 }
 .tool-card-wrapper > .tool-footer {
-    border-radius: 0 0 10px 10px;
+    border-radius: 0;
 }
 .tool-card-wrapper > .tool-card:last-child {
-    border-radius: 10px;
+    border-radius: 0;
 }
 .tool-card-wrapper > .diff-card {
     margin-bottom: 0;
-    border-radius: 10px 10px 0 0;
+    border-radius: 0;
 }
 .tool-card-wrapper > .diff-card:last-child {
-    border-radius: 10px;
+    border-radius: 0;
 }
 
 .tool-footer {
@@ -714,6 +714,12 @@ body {
     font-size: 13px;
     color: var(--muted);
     animation: preparing-pulse 2s ease-in-out infinite;
+}
+
+.streaming-message:has(.preparing-placeholder):not(:has(.message)):not(:has(.tool-card)) {
+    background: transparent;
+    border: none;
+    box-shadow: none;
 }
 
 @keyframes preparing-pulse {
@@ -909,7 +915,7 @@ body {
 .diff-card {
     margin: 0 0 8px 0;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 0;
     background: var(--card-bg);
     overflow: hidden;
     box-sizing: border-box;
