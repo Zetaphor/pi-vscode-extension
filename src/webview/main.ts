@@ -731,6 +731,7 @@ function renderStreamingContent(): void {
                     <summary class="thinking-summary">
                         <span class="thinking-indicator"></span>
                         <span class="thinking-label">Thinking...</span>
+                        <span class="thinking-chevron">&#9656;</span>
                     </summary>
                     <div class="thinking-content"></div>
                 </details>
@@ -915,7 +916,7 @@ function buildToolResultCard(msg: any, allMessages: any[], msgIndex: number): HT
     const filePath = parsedArgs?.path ?? parsedArgs?.file_path ?? '';
 
     const resultContent = extractText(msg);
-    const hasBody = !!(resultContent || isBash);
+    const hasBody = !!(resultContent || isBash) && !isRead;
 
     const footer = buildToolFooter(msg, allMessages, msgIndex);
 
@@ -923,8 +924,7 @@ function buildToolResultCard(msg: any, allMessages: any[], msgIndex: number): HT
         const wrapper = el('div', 'tool-card-wrapper');
 
         const details = document.createElement('details');
-        details.className = `tool-card tool-expandable${isRead ? ' tool-clickable' : ''}`;
-        if (isRead && filePath) details.dataset.filepath = filePath;
+        details.className = 'tool-card tool-expandable';
 
         details.innerHTML = `
             <summary class="tool-header">
@@ -1117,7 +1117,9 @@ function buildThinkingBlock(text: string, active: boolean, durationSec?: number)
     }
     details.innerHTML = `
         <summary class="thinking-summary">
-            <span class="thinking-indicator"></span> ${label}
+            <span class="thinking-indicator"></span>
+            <span class="thinking-label">${label}</span>
+            <span class="thinking-chevron">&#9656;</span>
         </summary>
         <div class="thinking-content">${renderMarkdown(text)}</div>
     `;
