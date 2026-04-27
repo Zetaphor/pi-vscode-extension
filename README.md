@@ -25,9 +25,6 @@ Watch the agent's reasoning in real time with collapsible thinking blocks. Cycle
 ### Model Selection
 Pick from any model available through the Pi agent's model registry via a quick-pick menu or the in-chat model picker. Recently used models are surfaced for fast switching.
 
-### Terminal Mirroring
-Shell commands the agent runs are echoed into a dedicated "Pi Agent" integrated terminal so you can follow along.
-
 ### Context Usage
 Token usage and context window utilization are displayed in both the chat footer and the status bar tooltip.
 
@@ -106,7 +103,7 @@ All commands are available from the command palette (`Ctrl+Shift+P`):
 │       ▼                     ▼                │
 │  ┌──────────┐   ┌────────────────────────┐  │
 │  │StatusBar  │   │     Webview (chat UI)  │  │
-│  │Terminal   │   │     main.ts + CSS      │  │
+│  │          │   │     main.ts + CSS      │  │
 │  └──────────┘   └───────────┬────────────┘  │
 │                             │                │
 │              ClientMessage / ServerMessage    │
@@ -151,7 +148,6 @@ src/
 │   ├── sidebar.ts            # Webview provider, tab management
 │   ├── diff.ts               # File change tracking, VS Code diff integration
 │   ├── checkpoint.ts         # Per-turn snapshots, rollback/redo
-│   ├── terminal.ts           # Terminal mirroring
 │   └── status-bar.ts         # Status bar item
 ├── utils/
 │   └── diff.ts               # Myers diff algorithm, unified diff formatting
