@@ -516,7 +516,7 @@ body {
     align-items: center;
     gap: 8px;
     padding: 6px 16px;
-    font-size: 13px;
+    font-size: var(--vscode-font-size, 13px) !important;
     user-select: none;
 }
 
@@ -526,10 +526,13 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--badge-bg);
-    border-radius: 4px;
-    font-size: 10px;
     flex-shrink: 0;
+}
+
+.tool-icon-img {
+    width: 18px;
+    height: 18px;
+    filter: brightness(0) invert(0.8);
 }
 .tool-name { font-weight: normal; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -594,7 +597,6 @@ body {
 }
 
 .tool-body {
-    border-top: 1px solid var(--border);
     margin: 0 16px;
 }
 
@@ -652,7 +654,7 @@ body {
 .thinking-summary {
     padding: 6px 16px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: var(--vscode-font-size, 13px) !important;
     font-weight: normal;
     color: var(--fg);
     user-select: none;
@@ -726,6 +728,12 @@ body {
     border-radius: 3px;
     font-family: var(--font-mono);
     font-size: 0.9em;
+}
+
+.thinking-summary .thinking-label {
+    font-size: inherit;
+    color: inherit;
+    margin-right: 0;
 }
 
 .thinking-block.active .thinking-summary { color: var(--warning-fg); }

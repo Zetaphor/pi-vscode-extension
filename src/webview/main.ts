@@ -161,13 +161,21 @@ function applyStateSync(s: SerializedAgentState): void {
     state.thinkingStartTime = s.thinkingStartTime ?? 0;
     state.streamingThinkingDuration = s.streamingThinkingDuration ?? 0;
     const tabSwitched = prevTab !== state.activeTabId;
-    render();
-    if (state.isStreaming) {
-        ensurePreparingPlaceholder();
-    }
-    if (tabSwitched || !prevTab) {
+
+    if (tabSwitched || !skeletonBuilt) {
+        render();
         userHasScrolled = false;
         scrollToBottom(true);
+        updateScrollButton();
+    } else {
+        updateTabs();
+        updateStreamingUI();
+        updateMessages();
+        updateInputArea();
+        updateChangedFiles();
+        if (state.isStreaming) {
+            ensurePreparingPlaceholder();
+        }
         updateScrollButton();
     }
 }
@@ -185,7 +193,8 @@ function handleAgentEvent(event: any): void {
             state.streamingThinking = '';
             state.isThinking = false;
             userHasScrolled = false;
-            render();
+            updateInputArea();
+            updateStreamingUI();
             showPreparingPlaceholder();
             break;
         case 'agent_end':
@@ -193,7 +202,8 @@ function handleAgentEvent(event: any): void {
             state.streamingText = '';
             state.streamingThinking = '';
             state.isThinking = false;
-            render();
+            updateStreamingUI();
+            updateInputArea();
             break;
         case 'tool_execution_start':
             removePreparingPlaceholder();
@@ -239,22 +249,92 @@ function handleStreamingDelta(ae: any): void {
 
 // ── Rendering ──
 
+let skeletonBuilt = false;
+
 function render(): void {
     const app = document.getElementById('app')!;
     app.innerHTML = '';
+    skeletonBuilt = false;
 
-    app.appendChild(buildHeader());
+    // Header: tab-strip (dynamic) + header-right (static)
+    const header = el('div', 'header');
+    const tabStrip = el('div', 'tab-strip');
+    header.appendChild(tabStrip);
+    const headerActions = el('div', 'header-right');
+    headerActions.innerHTML = `
+        <button class="icon-btn" id="btn-new-tab" title="New Agent">+</button>
+        <button class="icon-btn" id="btn-sessions" title="Sessions">&#9776;</button>
+    `;
+    header.appendChild(headerActions);
+    app.appendChild(header);
 
+    // Messages container (persistent, children managed by updateMessages)
     const messagesContainer = el('div', 'messages');
     messagesContainer.id = 'messages';
+    const streamingContainer = el('div', 'streaming-message message-group-assistant');
+    streamingContainer.id = 'streaming-message';
+    messagesContainer.appendChild(streamingContainer);
+    const spacer = el('div', 'messages-spacer');
+    messagesContainer.appendChild(spacer);
+    app.appendChild(messagesContainer);
+
+    // Scroll-to-bottom button (static)
+    const scrollWrap = el('div', 'scroll-btn-wrap');
+    const scrollBtn = el('button', 'scroll-bottom-btn');
+    scrollBtn.id = 'btn-scroll-bottom';
+    scrollBtn.title = 'Scroll to bottom';
+    scrollBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3L8 13M8 13L3 8M8 13L13 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    scrollWrap.appendChild(scrollBtn);
+    app.appendChild(scrollWrap);
+
+    // Input container: changed-files slot + input-area (persistent textarea) + footer
+    const inputContainer = el('div', 'input-container');
+    const area = el('div', 'input-area');
+    area.innerHTML = `<textarea id="input" placeholder="Ask Pi anything..." rows="1"></textarea>`;
+    inputContainer.appendChild(area);
+    const footer = el('div', 'input-footer');
+    inputContainer.appendChild(footer);
+    app.appendChild(inputContainer);
+
+    // Bind stable event listeners (these elements persist for the lifetime of the skeleton)
+    bindStableEvents();
+    bindScrollListener();
+    scrollBtn.addEventListener('click', () => {
+        userHasScrolled = false;
+        scrollToBottom(true);
+        updateScrollButton();
+    });
+
+    skeletonBuilt = true;
+
+    // Populate all dynamic sections
+    updateTabs();
+    updateMessages();
+    updateInputArea();
+    updateChangedFiles();
+    scrollToBottom();
+}
+
+function updateMessages(): void {
+    const container = document.getElementById('messages');
+    if (!container) return;
+
+    const streamingEl = document.getElementById('streaming-message');
+    const spacerEl = container.querySelector('.messages-spacer');
+
+    // Remove all children before #streaming-message (the message nodes)
+    while (container.firstChild && container.firstChild !== streamingEl) {
+        container.removeChild(container.firstChild);
+    }
+
+    codeBlockId = 0;
 
     if (state.messages.length === 0 && !state.isStreaming) {
-        messagesContainer.appendChild(buildWelcome());
+        container.insertBefore(buildWelcome(), streamingEl);
     } else {
         let userMsgCount = 0;
         const rollbackUserIdx = state.rollbackPoint;
         let dimming = false;
-
         let redoPlaced = false;
 
         for (let i = 0; i < state.messages.length; i++) {
@@ -273,7 +353,7 @@ function render(): void {
                 msgEl.classList.add('dimmed');
             }
 
-            messagesContainer.appendChild(msgEl);
+            container.insertBefore(msgEl, streamingEl);
 
             if (role === 'user' && dimming && !redoPlaced && rollbackUserIdx !== null) {
                 const redoWrap = el('div', 'redo-anchor');
@@ -281,54 +361,24 @@ function render(): void {
                 redoBtn.title = 'Redo changes';
                 redoBtn.textContent = 'Redo';
                 redoWrap.appendChild(redoBtn);
-                messagesContainer.appendChild(redoWrap);
+                container.insertBefore(redoWrap, streamingEl);
                 redoPlaced = true;
             }
         }
     }
 
-    const streamingContainer = el('div', 'streaming-message message-group-assistant');
-    streamingContainer.id = 'streaming-message';
-    messagesContainer.appendChild(streamingContainer);
-
-    const spacer = el('div', 'messages-spacer');
-    messagesContainer.appendChild(spacer);
-
-    app.appendChild(messagesContainer);
-
-    const scrollWrap = el('div', 'scroll-btn-wrap');
-    const scrollBtn = el('button', 'scroll-bottom-btn');
-    scrollBtn.id = 'btn-scroll-bottom';
-    scrollBtn.title = 'Scroll to bottom';
-    scrollBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3L8 13M8 13L3 8M8 13L13 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    scrollWrap.appendChild(scrollBtn);
-    app.appendChild(scrollWrap);
-
-    app.appendChild(buildInputContainer());
-
-    bindEvents();
-    bindTabEvents();
     bindCopyButtons();
     bindCheckpointButtons();
     bindRedoButtons();
     bindDiffButtons();
     bindToolClickable();
-    bindChangedFileItems();
-    bindScrollListener();
-
-    scrollBtn.addEventListener('click', () => {
-        userHasScrolled = false;
-        scrollToBottom(true);
-        updateScrollButton();
-    });
-
-    scrollToBottom();
 }
 
-function buildHeader(): HTMLElement {
-    const header = el('div', 'header');
+function updateTabs(): void {
+    const tabStrip = document.querySelector('.tab-strip');
+    if (!tabStrip) return;
+    tabStrip.innerHTML = '';
 
-    const tabStrip = el('div', 'tab-strip');
     for (const tab of state.tabs) {
         const tabEl = el('div', `tab${tab.isActive ? ' tab-active' : ''}${tab.isStreaming ? ' tab-streaming' : ''}`);
         tabEl.dataset.tabId = tab.id;
@@ -360,34 +410,21 @@ function buildHeader(): HTMLElement {
 
         tabStrip.appendChild(tabEl);
     }
-    header.appendChild(tabStrip);
 
-    const headerActions = el('div', 'header-right');
-    headerActions.innerHTML = `
-        <button class="icon-btn" id="btn-new-tab" title="New Agent">+</button>
-        <button class="icon-btn" id="btn-sessions" title="Sessions">&#9776;</button>
-    `;
-    header.appendChild(headerActions);
-
-    return header;
+    bindTabEvents();
 }
 
-function buildInputContainer(): HTMLElement {
-    const container = el('div', 'input-container');
-
-    if (state.fileChanges.length > 0) {
-        container.appendChild(buildChangedFilesSection());
+function updateInputArea(): void {
+    const input = document.getElementById('input') as HTMLTextAreaElement | null;
+    if (input) {
+        input.placeholder = state.isStreaming
+            ? 'Type to steer Pi, or press Esc to stop...'
+            : 'Ask Pi anything...';
     }
 
-    const area = el('div', 'input-area');
-    const placeholder = state.isStreaming
-        ? 'Type to steer Pi, or press Esc to stop...'
-        : 'Ask Pi anything...';
+    const footer = document.querySelector('.input-footer');
+    if (!footer) return;
 
-    area.innerHTML = `<textarea id="input" placeholder="${placeholder}" rows="1"></textarea>`;
-    container.appendChild(area);
-
-    const footer = el('div', 'input-footer');
     const modelName = state.model?.name ?? state.model?.id ?? '';
 
     let contextHtml = '';
@@ -410,8 +447,30 @@ function buildInputContainer(): HTMLElement {
         ${state.isStreaming ? '<button id="btn-abort" class="abort-btn" title="Stop generation (Esc)">&#9632; Stop</button>' : ''}
         <button id="btn-send" class="send-btn" title="${state.isStreaming ? 'Steer' : 'Send'}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3L8 13M8 3L3 8M8 3L13 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     `;
-    container.appendChild(footer);
-    return container;
+
+    // Rebind the dynamic footer elements
+    const sendBtn = document.getElementById('btn-send');
+    sendBtn?.addEventListener('click', () => {
+        if (state.isStreaming) {
+            const text = input?.value.trim();
+            if (text) {
+                vscode.postMessage({ type: 'steer', text });
+                if (input) { input.value = ''; input.style.height = 'auto'; }
+            } else {
+                vscode.postMessage({ type: 'abort' });
+            }
+        } else {
+            sendMessage();
+        }
+    });
+
+    const abortBtn = document.getElementById('btn-abort');
+    abortBtn?.addEventListener('click', () => vscode.postMessage({ type: 'abort' }));
+
+    document.querySelector('.footer-model')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleModelPicker();
+    });
 }
 
 function buildWelcome(): HTMLElement {
@@ -491,6 +550,56 @@ function buildChangedFilesSection(): HTMLElement {
     details.appendChild(list);
 
     return details;
+}
+
+function updateChangedFiles(): void {
+    const container = document.querySelector('.input-container');
+    if (!container) return;
+
+    const existing = document.getElementById('changed-files-bar') as HTMLDetailsElement | null;
+    const wasOpen = existing?.open ?? false;
+
+    if (state.fileChanges.length === 0) {
+        existing?.remove();
+        return;
+    }
+
+    const newSection = buildChangedFilesSection();
+    if (wasOpen) {
+        (newSection as HTMLDetailsElement).open = true;
+    }
+
+    if (existing) {
+        existing.replaceWith(newSection);
+    } else {
+        container.insertBefore(newSection, container.firstChild);
+    }
+
+    bindChangedFileItems();
+
+    const undoAllBtn = document.getElementById('btn-undo-all');
+    undoAllBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        vscode.postMessage({
+            type: 'confirmAction',
+            action: 'undoAllFileChanges',
+            message: 'Undo all file changes made in this session?',
+        });
+    });
+
+    const reviewBtn = document.getElementById('btn-review-all');
+    reviewBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const seen = new Set<string>();
+        for (const change of state.fileChanges) {
+            if (!seen.has(change.filePath)) {
+                seen.add(change.filePath);
+                vscode.postMessage({ type: 'openDiff', filePath: change.filePath, toolCallId: change.toolCallId });
+            }
+        }
+    });
 }
 
 function renderChangedFilesBar(): void {
@@ -775,18 +884,21 @@ function renderStreamingContent(): void {
 
 // ── Tool rendering ──
 
+const iconsBaseUri = document.getElementById('app')?.dataset.iconsUri ?? '';
+
 function getToolIcon(name: string): string {
-    const icons: Record<string, string> = {
-        bash: '&#9881;',
-        python: '&#128013;',
-        read: '&#128196;',
-        write: '&#9998;',
-        edit: '&#9998;',
-        glob: '&#128269;',
-        grep: '&#128269;',
-        list: '&#128193;',
+    const iconFiles: Record<string, string> = {
+        bash: 'terminal.png',
+        python: 'code.png',
+        read: 'text.png',
+        write: 'pencil.png',
+        edit: 'pencil.png',
+        glob: 'magnifying-glass.png',
+        grep: 'magnifying-glass.png',
+        list: 'folder.png',
     };
-    return icons[name.toLowerCase()] ?? '&#9889;';
+    const file = iconFiles[name.toLowerCase()] ?? 'bolt.png';
+    return `<img class="tool-icon-img" src="${iconsBaseUri}/${file}" alt="${escHtml(name)}">`;
 }
 
 function getToolLabel(name: string, args: any): string {
@@ -910,7 +1022,7 @@ function buildToolResultCard(msg: any, allMessages: any[], msgIndex: number): HT
     const args = matchingCall?.arguments ?? matchingCall?.args ?? matchingCall?.input ?? {};
     const parsedArgs = typeof args === 'string' ? tryParseJSON(args) : args;
     const label = toolName ? getToolLabel(toolName, parsedArgs) : 'Tool Result';
-    const icon = toolName ? getToolIcon(toolName) : (isError ? '&#10060;' : '&#9889;');
+    const icon = getToolIcon(toolName ?? '');
     const isBash = nameLower === 'bash';
     const isRead = nameLower === 'read';
     const filePath = parsedArgs?.path ?? parsedArgs?.file_path ?? '';
@@ -1344,30 +1456,18 @@ function showError(message: string): void {
     scrollToBottom();
 }
 
+function updateStreamingUI(): void {
+    const container = document.getElementById('streaming-message');
+    if (!container) return;
+    container.innerHTML = '';
+}
+
 // ── Events ──
 
-function bindEvents(): void {
+function bindStableEvents(): void {
     const input = document.getElementById('input') as HTMLTextAreaElement | null;
-    const sendBtn = document.getElementById('btn-send');
     const newTabBtn = document.getElementById('btn-new-tab');
-    const abortBtn = document.getElementById('btn-abort');
     const sessionsBtn = document.getElementById('btn-sessions');
-    const undoAllBtn = document.getElementById('btn-undo-all');
-    const reviewBtn = document.getElementById('btn-review-all');
-
-    sendBtn?.addEventListener('click', () => {
-        if (state.isStreaming) {
-            const text = input?.value.trim();
-            if (text) {
-                vscode.postMessage({ type: 'steer', text });
-                if (input) { input.value = ''; input.style.height = 'auto'; }
-            } else {
-                vscode.postMessage({ type: 'abort' });
-            }
-        } else {
-            sendMessage();
-        }
-    });
 
     input?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -1397,34 +1497,6 @@ function bindEvents(): void {
 
     newTabBtn?.addEventListener('click', () => vscode.postMessage({ type: 'createTab' }));
     sessionsBtn?.addEventListener('click', () => vscode.postMessage({ type: 'getSessions' }));
-    abortBtn?.addEventListener('click', () => vscode.postMessage({ type: 'abort' }));
-
-    document.querySelector('.footer-model')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleModelPicker();
-    });
-
-    undoAllBtn?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        vscode.postMessage({
-            type: 'confirmAction',
-            action: 'undoAllFileChanges',
-            message: 'Undo all file changes made in this session?',
-        });
-    });
-
-    reviewBtn?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        const seen = new Set<string>();
-        for (const change of state.fileChanges) {
-            if (!seen.has(change.filePath)) {
-                seen.add(change.filePath);
-                vscode.postMessage({ type: 'openDiff', filePath: change.filePath, toolCallId: change.toolCallId });
-            }
-        }
-    });
 }
 
 function bindTabEvents(): void {
