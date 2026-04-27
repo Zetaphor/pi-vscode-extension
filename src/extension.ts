@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { PiSessionManager } from './pi/session';
 import { SidebarProvider } from './providers/sidebar';
 import { StatusBarManager } from './providers/status-bar';
-import { TerminalManager } from './providers/terminal';
+
 import { DiffManager, DiffContentProvider } from './providers/diff';
 import { CheckpointManager } from './providers/checkpoint';
 
@@ -19,7 +19,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const diffContentProvider = new DiffContentProvider();
         const checkpointManager = new CheckpointManager();
         const statusBar = new StatusBarManager(piSession);
-        const terminalManager = new TerminalManager(piSession);
+
         const diffManager = new DiffManager(piSession, checkpointManager);
         const sidebarProvider = new SidebarProvider(
             context.extensionUri, piSession, diffManager, checkpointManager, outputChannel,
@@ -29,7 +29,7 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.window.registerWebviewViewProvider('pi-agent.chat', sidebarProvider),
             vscode.workspace.registerTextDocumentContentProvider('pi-diff', diffContentProvider),
             statusBar,
-            terminalManager,
+
             diffManager,
             checkpointManager,
             outputChannel,
