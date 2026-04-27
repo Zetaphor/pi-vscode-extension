@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "zetaphor",
   "license": "MIT",
+  "icon": "media/pi-icon-full.png",
   "engines": {
     "vscode": "^1.100.0"
   },
