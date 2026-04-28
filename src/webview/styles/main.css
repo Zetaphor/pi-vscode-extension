@@ -877,6 +877,31 @@ body {
 .send-btn svg { display: block; }
 .send-btn:hover { background: rgba(255, 255, 255, 1); }
 
+.steer-btn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, border-color 0.15s;
+    padding: 0;
+    flex-shrink: 0;
+}
+.steer-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+.steer-icon-img {
+    width: 14px;
+    height: 14px;
+    filter: brightness(0) invert(0.8);
+}
+.steer-btn:hover .steer-icon-img { filter: brightness(0) invert(1); }
+
 /* ── Welcome ── */
 .welcome {
     display: flex;
@@ -1351,6 +1376,172 @@ body {
     background: rgba(244, 135, 113, 0.08);
     border-left: 3px solid var(--error-fg);
     margin: 4px 0;
+}
+
+/* ── Steer toast ── */
+.steer-toast {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    transition: opacity 0.3s;
+}
+.steer-toast-fade {
+    opacity: 0;
+}
+.steer-toast-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--warning-fg);
+    flex-shrink: 0;
+    animation: pulse-dot 1.5s ease-in-out infinite;
+}
+.steer-toast-label {
+    font-size: 12px;
+    color: var(--warning-fg);
+    flex-shrink: 0;
+}
+.steer-toast-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+}
+
+/* ── Queued messages section ── */
+.queued-section {
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+}
+.queued-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    outline: none;
+    color: var(--muted);
+    transition: color 0.15s;
+}
+.queued-summary::-webkit-details-marker { display: none; }
+.queued-summary::marker { display: none; content: ''; }
+.queued-summary:hover { color: var(--fg); }
+.queued-chevron {
+    font-size: 10px;
+    display: inline-block;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+}
+.queued-section[open] .queued-chevron {
+    transform: rotate(90deg);
+}
+.queued-count {
+    font-size: 12px;
+    color: var(--muted);
+}
+.queued-list {
+    border-top: 1px solid var(--border);
+}
+.queued-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px;
+}
+.queued-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+.queued-item-icon {
+    color: var(--muted);
+    font-size: 10px;
+    flex-shrink: 0;
+    width: 14px;
+    text-align: center;
+}
+.queued-item-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg);
+}
+.queued-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+.queued-item-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 3px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+}
+.queued-item-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+.queued-btn-icon {
+    width: 12px;
+    height: 12px;
+    filter: brightness(0) invert(0.6);
+    display: block;
+}
+.queued-item-btn:hover .queued-btn-icon {
+    filter: brightness(0) invert(1);
+}
+
+/* Inline edit mode */
+.queued-item-editing {
+    gap: 6px;
+}
+.queued-edit-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+}
+.queued-edit-input:focus {
+    border-color: var(--focus-border);
+}
+.queued-edit-save,
+.queued-edit-cancel {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 13px;
+    color: var(--muted);
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+.queued-edit-save:hover {
+    background: rgba(115, 201, 145, 0.15);
+    color: var(--success-fg);
+}
+.queued-edit-cancel:hover {
+    background: rgba(244, 135, 113, 0.15);
+    color: var(--error-fg);
 }
 
 /* ── Slash command menu ── */

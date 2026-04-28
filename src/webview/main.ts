@@ -33,6 +33,7 @@ const state: {
     tabs: TabInfo[];
     activeTabId: string;
     skills: SkillInfo[];
+    queuedMessages: string[];
 } = {
     messages: [],
     isStreaming: false,
@@ -49,6 +50,7 @@ const state: {
     tabs: [],
     activeTabId: '',
     skills: [],
+    queuedMessages: [],
 };
 
 // ── Marked config ──
@@ -170,6 +172,7 @@ function applyStateSync(s: SerializedAgentState): void {
     state.isThinking = s.isThinking ?? false;
     state.thinkingStartTime = s.thinkingStartTime ?? 0;
     state.streamingThinkingDuration = s.streamingThinkingDuration ?? 0;
+    state.queuedMessages = s.queuedMessages ?? [];
     const tabSwitched = prevTab !== state.activeTabId;
 
     if (tabSwitched || !skeletonBuilt) {
@@ -183,6 +186,7 @@ function applyStateSync(s: SerializedAgentState): void {
         updateMessages();
         updateInputArea();
         updateChangedFiles();
+        updateQueuedMessageBanner();
         if (state.isStreaming) {
             ensurePreparingPlaceholder();
         }
@@ -212,6 +216,7 @@ function handleAgentEvent(event: any): void {
             state.streamingText = '';
             state.streamingThinking = '';
             state.isThinking = false;
+            dismissSteerToast();
             updateStreamingUI();
             updateInputArea();
             break;
@@ -239,6 +244,7 @@ function handleStreamingDelta(ae: any): void {
             break;
         case 'thinking_delta':
             state.streamingThinking += ae.delta ?? '';
+            dismissSteerToast();
             break;
         case 'thinking_end':
             state.isThinking = false;
@@ -250,6 +256,7 @@ function handleStreamingDelta(ae: any): void {
             break;
         case 'text_delta':
             state.streamingText += ae.delta ?? '';
+            dismissSteerToast();
             break;
         case 'text_end':
             break;
@@ -298,8 +305,13 @@ function render(): void {
     scrollWrap.appendChild(scrollBtn);
     app.appendChild(scrollWrap);
 
-    // Input container: changed-files slot + slash menu + input-area (persistent textarea) + footer
+    // Input container: changed-files slot + queued section + slash menu + input-area (persistent textarea) + footer
     const inputContainer = el('div', 'input-container');
+    const queuedSection = document.createElement('details');
+    queuedSection.className = 'queued-section';
+    queuedSection.id = 'queued-section';
+    queuedSection.style.display = 'none';
+    inputContainer.appendChild(queuedSection);
     const slashMenu = el('div', 'slash-menu');
     slashMenu.id = 'slash-menu';
     slashMenu.style.display = 'none';
@@ -435,7 +447,7 @@ function updateInputArea(): void {
     const input = document.getElementById('input') as HTMLTextAreaElement | null;
     if (input) {
         input.placeholder = state.isStreaming
-            ? 'Type to steer Pi, or press Esc to stop...'
+            ? 'Type to queue a message, Ctrl+Enter to steer, Esc to stop...'
             : 'Ask Pi anything...';
     }
 
@@ -457,12 +469,17 @@ function updateInputArea(): void {
         }
     }
 
+    const steerBtnHtml = state.isStreaming
+        ? `<button id="btn-steer" class="steer-btn" title="Steer (Ctrl+Enter)"><img class="steer-icon-img" src="${iconsBaseUri}/chevrons.png" alt="steer"></button>`
+        : '';
+
     footer.innerHTML = `
         <span class="footer-model">${escHtml(modelName)}</span>
         <span class="footer-spacer"></span>
         ${contextHtml}
         ${state.isStreaming ? '<button id="btn-abort" class="abort-btn" title="Stop generation (Esc)">&#9632; Stop</button>' : ''}
-        <button id="btn-send" class="send-btn" title="${state.isStreaming ? 'Steer' : 'Send'}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3L8 13M8 3L3 8M8 3L13 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        ${steerBtnHtml}
+        <button id="btn-send" class="send-btn" title="${state.isStreaming ? 'Queue' : 'Send'}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3L8 13M8 3L3 8M8 3L13 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     `;
 
     // Rebind the dynamic footer elements
@@ -471,13 +488,23 @@ function updateInputArea(): void {
         if (state.isStreaming) {
             const text = input?.value.trim();
             if (text) {
-                vscode.postMessage({ type: 'steer', text });
+                vscode.postMessage({ type: 'queueMessage', text });
                 if (input) { input.value = ''; input.style.height = 'auto'; }
             } else {
                 vscode.postMessage({ type: 'abort' });
             }
         } else {
             sendMessage();
+        }
+    });
+
+    const steerBtn = document.getElementById('btn-steer');
+    steerBtn?.addEventListener('click', () => {
+        const text = input?.value.trim();
+        if (text) {
+            vscode.postMessage({ type: 'steer', text });
+            if (input) { input.value = ''; input.style.height = 'auto'; }
+            showSteerToast(text);
         }
     });
 
@@ -488,6 +515,155 @@ function updateInputArea(): void {
         e.stopPropagation();
         toggleModelPicker();
     });
+
+    updateQueuedMessageBanner();
+}
+
+let queuedEditingIndex = -1;
+
+function updateQueuedMessageBanner(): void {
+    const section = document.getElementById('queued-section') as HTMLDetailsElement | null;
+    if (!section) return;
+
+    if (state.queuedMessages.length === 0) {
+        section.style.display = 'none';
+        section.innerHTML = '';
+        queuedEditingIndex = -1;
+        return;
+    }
+
+    section.style.display = '';
+    section.open = true;
+
+    const count = state.queuedMessages.length;
+    section.innerHTML = `
+        <summary class="queued-summary">
+            <span class="queued-chevron">&#9656;</span>
+            <span class="queued-count">${count} Queued</span>
+        </summary>
+        <div class="queued-list">
+            ${state.queuedMessages.map((msg, i) => {
+                if (i === queuedEditingIndex) {
+                    return `<div class="queued-item queued-item-editing" data-index="${i}">
+                        <span class="queued-item-icon">&#9675;</span>
+                        <input class="queued-edit-input" data-index="${i}" type="text" value="${escAttr(msg)}">
+                        <button class="queued-edit-save" data-index="${i}" title="Save">&#10003;</button>
+                        <button class="queued-edit-cancel" data-index="${i}" title="Cancel">&#10005;</button>
+                    </div>`;
+                }
+                return `<div class="queued-item" data-index="${i}">
+                    <span class="queued-item-icon">&#9675;</span>
+                    <span class="queued-item-text">${escHtml(msg)}</span>
+                    <span class="queued-item-actions">
+                        <button class="queued-item-btn queued-item-edit" data-index="${i}" title="Edit"><img class="queued-btn-icon" src="${iconsBaseUri}/pencil.png" alt="edit"></button>
+                        <button class="queued-item-btn queued-item-delete" data-index="${i}" title="Remove"><img class="queued-btn-icon" src="${iconsBaseUri}/trash.png" alt="remove"></button>
+                    </span>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+
+    bindQueuedItemEvents(section);
+}
+
+function bindQueuedItemEvents(section: HTMLElement): void {
+    section.querySelectorAll('.queued-item-delete').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = parseInt((btn as HTMLElement).dataset.index ?? '-1', 10);
+            if (idx >= 0) {
+                if (queuedEditingIndex === idx) queuedEditingIndex = -1;
+                else if (queuedEditingIndex > idx) queuedEditingIndex--;
+                vscode.postMessage({ type: 'removeQueuedMessage', index: idx });
+            }
+        });
+    });
+
+    section.querySelectorAll('.queued-item-edit').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = parseInt((btn as HTMLElement).dataset.index ?? '-1', 10);
+            if (idx >= 0) {
+                queuedEditingIndex = idx;
+                updateQueuedMessageBanner();
+                const input = section.querySelector(`.queued-edit-input[data-index="${idx}"]`) as HTMLInputElement | null;
+                if (input) {
+                    input.focus();
+                    input.setSelectionRange(input.value.length, input.value.length);
+                }
+            }
+        });
+    });
+
+    section.querySelectorAll('.queued-edit-save').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = parseInt((btn as HTMLElement).dataset.index ?? '-1', 10);
+            const input = section.querySelector(`.queued-edit-input[data-index="${idx}"]`) as HTMLInputElement | null;
+            if (idx >= 0 && input && input.value.trim()) {
+                queuedEditingIndex = -1;
+                vscode.postMessage({ type: 'editQueuedMessage', index: idx, text: input.value.trim() });
+            }
+        });
+    });
+
+    section.querySelectorAll('.queued-edit-cancel').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            queuedEditingIndex = -1;
+            updateQueuedMessageBanner();
+        });
+    });
+
+    section.querySelectorAll('.queued-edit-input').forEach((input) => {
+        input.addEventListener('keydown', (e) => {
+            const ke = e as KeyboardEvent;
+            const idx = parseInt((input as HTMLElement).dataset.index ?? '-1', 10);
+            if (ke.key === 'Enter') {
+                ke.preventDefault();
+                const val = (input as HTMLInputElement).value.trim();
+                if (idx >= 0 && val) {
+                    queuedEditingIndex = -1;
+                    vscode.postMessage({ type: 'editQueuedMessage', index: idx, text: val });
+                }
+            }
+            if (ke.key === 'Escape') {
+                ke.preventDefault();
+                queuedEditingIndex = -1;
+                updateQueuedMessageBanner();
+            }
+        });
+    });
+}
+
+function showSteerToast(text: string): void {
+    const existing = document.getElementById('steer-toast');
+    if (existing) existing.remove();
+
+    const container = document.querySelector('.input-container');
+    if (!container) return;
+
+    const toast = el('div', 'steer-toast');
+    toast.id = 'steer-toast';
+    toast.innerHTML = `
+        <span class="steer-toast-indicator"></span>
+        <span class="steer-toast-label">Steering...</span>
+        <span class="steer-toast-text">${escHtml(truncate(text, 80))}</span>
+    `;
+
+    const inputArea = container.querySelector('.input-area');
+    if (inputArea) {
+        container.insertBefore(toast, inputArea);
+    } else {
+        container.appendChild(toast);
+    }
+}
+
+function dismissSteerToast(): void {
+    const toast = document.getElementById('steer-toast');
+    if (!toast) return;
+    toast.classList.add('steer-toast-fade');
+    setTimeout(() => toast.remove(), 300);
 }
 
 function buildWelcome(): HTMLElement {
@@ -1594,7 +1770,12 @@ function bindStableEvents(): void {
             if (state.isStreaming) {
                 const text = input.value.trim();
                 if (text) {
-                    vscode.postMessage({ type: 'steer', text });
+                    if (e.ctrlKey || e.metaKey) {
+                        vscode.postMessage({ type: 'steer', text });
+                        showSteerToast(text);
+                    } else {
+                        vscode.postMessage({ type: 'queueMessage', text });
+                    }
                     input.value = '';
                     input.style.height = 'auto';
                 }
@@ -1855,6 +2036,10 @@ function escHtml(s: string): string {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+}
+
+function escAttr(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function formatTimestamp(ts: number): string {

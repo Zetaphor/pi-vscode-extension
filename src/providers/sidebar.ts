@@ -30,6 +30,7 @@ interface TabState {
     messageMeta: Map<number, MessageMeta>;
     hasNotification: boolean;
     pendingApprovals: Map<string, PendingApproval>;
+    queuedMessages: string[];
 }
 
 let tabIdCounter = 0;
@@ -60,6 +61,7 @@ function makeTabState(
         messageMeta: new Map(),
         hasNotification: false,
         pendingApprovals: new Map(),
+        queuedMessages: [],
     };
 }
 
@@ -200,6 +202,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             } else {
                 tab.hasNotification = true;
             }
+
+            if (tab.queuedMessages.length > 0) {
+                const text = tab.queuedMessages.shift()!;
+                if (tab.checkpointManager.rollbackPoint !== null) {
+                    tab.checkpointManager.discardSuspended();
+                    tab.diffManager.discardSuspended();
+                    tab.suspendedMessages = [];
+                }
+                tab.turnCounter++;
+                const turnIdx = tab.turnCounter;
+                tab.checkpointManager.startTurn(turnIdx);
+                tab.diffManager.setCurrentTurn(turnIdx);
+                tab.session.prompt(text);
+            }
         }
 
         if (event.type === 'message_update' && event.assistantMessageEvent) {
@@ -273,6 +289,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         state.isThinking = tab.isThinking;
         state.thinkingStartTime = tab.thinkingStartTime;
         state.streamingThinkingDuration = tab.streamingThinkingDuration;
+        if (tab.queuedMessages.length > 0) {
+            state.queuedMessages = tab.queuedMessages;
+        }
         let assistantOrdinal = 0;
         for (let i = 0; i < state.messages.length; i++) {
             if (state.messages[i].role === 'assistant') {
@@ -322,6 +341,26 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 case 'steer':
                     await tab.session.steer(msg.text);
                     break;
+                case 'queueMessage':
+                    tab.queuedMessages.push(msg.text);
+                    this.sendStateSync();
+                    break;
+                case 'editQueuedMessage':
+                    if (msg.index >= 0 && msg.index < tab.queuedMessages.length && msg.text.trim()) {
+                        tab.queuedMessages[msg.index] = msg.text.trim();
+                    }
+                    this.sendStateSync();
+                    break;
+                case 'removeQueuedMessage':
+                    if (msg.index >= 0 && msg.index < tab.queuedMessages.length) {
+                        tab.queuedMessages.splice(msg.index, 1);
+                    }
+                    this.sendStateSync();
+                    break;
+                case 'cancelQueue':
+                    tab.queuedMessages = [];
+                    this.sendStateSync();
+                    break;
                 case 'followUp':
                     await tab.session.followUp(msg.text);
                     break;
@@ -357,6 +396,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     tab.streamingThinkingDuration = 0;
                     tab.agentStartTime = 0;
                     tab.messageMeta.clear();
+                    tab.queuedMessages = [];
                     this.sendStateSync();
                     break;
                 case 'loadSession':
@@ -372,6 +412,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     tab.streamingThinkingDuration = 0;
                     tab.agentStartTime = 0;
                     tab.messageMeta.clear();
+                    tab.queuedMessages = [];
                     this._updateTabName(tab);
                     this.sendStateSync();
                     break;

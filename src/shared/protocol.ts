@@ -63,6 +63,7 @@ export interface SerializedAgentState {
     isThinking?: boolean;
     thinkingStartTime?: number;
     streamingThinkingDuration?: number;
+    queuedMessages?: string[];
 }
 
 export interface ModelInfo {
@@ -111,7 +112,11 @@ export type ClientMessage =
     | { type: 'closeTab'; tabId: string }
     | { type: 'switchTab'; tabId: string }
     | { type: 'openSettings' }
-    | { type: 'getSkills' };
+    | { type: 'getSkills' }
+    | { type: 'queueMessage'; text: string }
+    | { type: 'editQueuedMessage'; index: number; text: string }
+    | { type: 'removeQueuedMessage'; index: number }
+    | { type: 'cancelQueue' };
 
 // Settings webview -> Extension messages
 export type SettingsClientMessage =
