@@ -68,7 +68,11 @@ Install [VS Code](https://code.visualstudio.com/) `1.100.0` or later. Compatible
 
 The Pi agent needs credentials for at least one AI provider. You can authenticate in two ways:
 
-**Option A — Environment variable (API key):**
+**Option A — Settings page (recommended):**
+
+Open the Pi Agent settings page (gear icon in the sidebar header, or `Pi: Open Settings` from the command palette) and enter your API key for your preferred provider. Keys are stored securely via VS Code's SecretStorage and never written to disk in plaintext.
+
+**Option B — Environment variable:**
 
 Set the appropriate environment variable before launching VS Code:
 
@@ -88,7 +92,7 @@ export DEEPSEEK_API_KEY=...
 
 Other supported API-key providers include Azure OpenAI, Google Vertex, Amazon Bedrock, Mistral, Groq, Cerebras, xAI, OpenRouter, Vercel AI Gateway, Hugging Face, Fireworks, Kimi For Coding, and MiniMax. See [Pi's provider docs](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/providers.md) for the full list and variable names.
 
-**Option B — Subscription login:**
+**Option C — Subscription login:**
 
 If you have an Anthropic Claude Pro/Max, OpenAI ChatGPT Plus/Pro, GitHub Copilot, Google Gemini CLI, or Google Antigravity subscription, you can authenticate via Pi's OAuth flow. Install Pi globally and run the login command once:
 
