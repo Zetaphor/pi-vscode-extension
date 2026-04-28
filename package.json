@@ -141,7 +141,7 @@
   "scripts": {
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "npx @vscode/vsce package",
+    "package": "npx @vscode/vsce package --allow-missing-repository --no-rewrite-relative-links",
     "test": "vitest",
     "test:unit": "vitest run",
     "test:integration": "node out/test/integration/runTest.js",
