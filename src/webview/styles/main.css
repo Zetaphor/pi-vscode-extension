@@ -181,6 +181,13 @@ body {
 }
 .icon-btn:hover { background: var(--input-bg); color: var(--fg); }
 
+.header-icon-img {
+    width: 14px;
+    height: 14px;
+    filter: brightness(0) invert(0.8);
+}
+.icon-btn:hover .header-icon-img { filter: brightness(0) invert(1); }
+
 /* ── Model picker popup ── */
 .model-picker {
     position: absolute;
@@ -1344,4 +1351,37 @@ body {
     background: rgba(244, 135, 113, 0.08);
     border-left: 3px solid var(--error-fg);
     margin: 4px 0;
+}
+
+/* ── Slash command menu ── */
+.slash-menu {
+    max-height: 200px;
+    overflow-y: auto;
+    border-bottom: 1px solid var(--border);
+}
+.slash-item {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 14px;
+    cursor: pointer;
+    gap: 2px;
+}
+.slash-item:hover {
+    background: var(--hover-bg, rgba(255, 255, 255, 0.05));
+}
+.slash-item-active {
+    background: var(--hover-bg, rgba(255, 255, 255, 0.08));
+}
+.slash-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg);
+    font-family: var(--font-mono);
+}
+.slash-item-desc {
+    font-size: 11px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }

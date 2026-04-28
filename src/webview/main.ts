@@ -1,5 +1,5 @@
 import { marked } from 'marked';
-import type { ClientMessage, ServerMessage, SerializedAgentState, FileChangeInfo, TabInfo, ToolCallPendingInfo } from '../shared/protocol';
+import type { ClientMessage, ServerMessage, SerializedAgentState, FileChangeInfo, TabInfo, ToolCallPendingInfo, SkillInfo } from '../shared/protocol';
 
 declare function acquireVsCodeApi(): {
     postMessage(message: ClientMessage): void;
@@ -32,6 +32,7 @@ const state: {
     recentModels: { provider: string; id: string; name?: string }[];
     tabs: TabInfo[];
     activeTabId: string;
+    skills: SkillInfo[];
 } = {
     messages: [],
     isStreaming: false,
@@ -47,6 +48,7 @@ const state: {
     rollbackPoint: null,
     tabs: [],
     activeTabId: '',
+    skills: [],
 };
 
 // ── Marked config ──
@@ -88,6 +90,7 @@ function handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
         case 'ready':
             vscode.postMessage({ type: 'getState' });
+            vscode.postMessage({ type: 'getSkills' });
             break;
         case 'stateSync':
             applyStateSync(msg.state);
@@ -124,6 +127,9 @@ function handleMessage(msg: ServerMessage): void {
             break;
         case 'toolCallResolved':
             removeToolApprovalCard(msg.toolCallId);
+            break;
+        case 'skills':
+            state.skills = msg.skills;
             break;
         case 'error':
             showError(msg.message);
@@ -268,7 +274,7 @@ function render(): void {
     headerActions.innerHTML = `
         <button class="icon-btn" id="btn-new-tab" title="New Agent">+</button>
         <button class="icon-btn" id="btn-sessions" title="Sessions">&#9776;</button>
-        <button class="icon-btn" id="btn-settings" title="Settings">&#9881;</button>
+        <button class="icon-btn" id="btn-settings" title="Settings"><img class="header-icon-img" src="${iconsBaseUri}/settings.png" alt="settings"></button>
     `;
     header.appendChild(headerActions);
     app.appendChild(header);
@@ -292,8 +298,12 @@ function render(): void {
     scrollWrap.appendChild(scrollBtn);
     app.appendChild(scrollWrap);
 
-    // Input container: changed-files slot + input-area (persistent textarea) + footer
+    // Input container: changed-files slot + slash menu + input-area (persistent textarea) + footer
     const inputContainer = el('div', 'input-container');
+    const slashMenu = el('div', 'slash-menu');
+    slashMenu.id = 'slash-menu';
+    slashMenu.style.display = 'none';
+    inputContainer.appendChild(slashMenu);
     const area = el('div', 'input-area');
     area.innerHTML = `<textarea id="input" placeholder="Ask Pi anything..." rows="1"></textarea>`;
     inputContainer.appendChild(area);
@@ -1552,6 +1562,33 @@ function bindStableEvents(): void {
     const settingsBtn = document.getElementById('btn-settings');
 
     input?.addEventListener('keydown', (e) => {
+        if (isSlashMenuVisible()) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                slashMenuIndex = Math.min(slashMenuIndex + 1, slashMenuItems.length - 1);
+                const menu = document.getElementById('slash-menu');
+                if (menu) renderSlashMenu(menu);
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                slashMenuIndex = Math.max(slashMenuIndex - 1, 0);
+                const menu = document.getElementById('slash-menu');
+                if (menu) renderSlashMenu(menu);
+                return;
+            }
+            if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                selectSlashItem(slashMenuIndex);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideSlashMenu();
+                return;
+            }
+        }
+
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             if (state.isStreaming) {
@@ -1575,6 +1612,7 @@ function bindStableEvents(): void {
         if (!input) return;
         input.style.height = 'auto';
         input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+        updateSlashMenu(input);
     });
 
     newTabBtn?.addEventListener('click', () => vscode.postMessage({ type: 'createTab' }));
@@ -1707,6 +1745,102 @@ function bindCopyButtons(): void {
             });
         });
     });
+}
+
+// ── Slash command menu ──
+
+let slashMenuIndex = 0;
+let slashMenuItems: SkillInfo[] = [];
+
+function updateSlashMenu(input: HTMLTextAreaElement): void {
+    const menu = document.getElementById('slash-menu');
+    if (!menu) return;
+
+    const text = input.value;
+    const cursorPos = input.selectionStart;
+
+    const beforeCursor = text.slice(0, cursorPos);
+    const slashMatch = beforeCursor.match(/(?:^|\s)(\/\S*)$/);
+
+    if (!slashMatch || state.skills.length === 0) {
+        hideSlashMenu();
+        return;
+    }
+
+    const query = slashMatch[1].slice(1).toLowerCase();
+    slashMenuItems = state.skills.filter(s =>
+        s.name.toLowerCase().includes(query) ||
+        s.description.toLowerCase().includes(query)
+    );
+
+    if (slashMenuItems.length === 0) {
+        hideSlashMenu();
+        return;
+    }
+
+    slashMenuIndex = Math.min(slashMenuIndex, slashMenuItems.length - 1);
+    renderSlashMenu(menu);
+    menu.style.display = '';
+}
+
+function renderSlashMenu(menu: HTMLElement): void {
+    menu.innerHTML = slashMenuItems.map((skill, i) => {
+        const active = i === slashMenuIndex ? ' slash-item-active' : '';
+        const desc = skill.description
+            ? `<span class="slash-item-desc">${escHtml(skill.description)}</span>`
+            : '';
+        return `<div class="slash-item${active}" data-index="${i}">
+            <span class="slash-item-name">/skill:${escHtml(skill.name)}</span>
+            ${desc}
+        </div>`;
+    }).join('');
+
+    menu.querySelectorAll('.slash-item').forEach((item) => {
+        item.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const idx = parseInt((item as HTMLElement).dataset.index ?? '0', 10);
+            selectSlashItem(idx);
+        });
+    });
+}
+
+function selectSlashItem(index: number): void {
+    const input = document.getElementById('input') as HTMLTextAreaElement | null;
+    if (!input) return;
+
+    const skill = slashMenuItems[index];
+    if (!skill) return;
+
+    const text = input.value;
+    const cursorPos = input.selectionStart;
+    const beforeCursor = text.slice(0, cursorPos);
+    const slashMatch = beforeCursor.match(/(?:^|\s)(\/\S*)$/);
+
+    if (slashMatch) {
+        const matchStart = beforeCursor.length - slashMatch[1].length;
+        const replacement = `/skill:${skill.name} `;
+        input.value = text.slice(0, matchStart) + replacement + text.slice(cursorPos);
+        const newPos = matchStart + replacement.length;
+        input.setSelectionRange(newPos, newPos);
+    }
+
+    hideSlashMenu();
+    input.focus();
+}
+
+function hideSlashMenu(): void {
+    const menu = document.getElementById('slash-menu');
+    if (menu) {
+        menu.style.display = 'none';
+        menu.innerHTML = '';
+    }
+    slashMenuItems = [];
+    slashMenuIndex = 0;
+}
+
+function isSlashMenuVisible(): boolean {
+    const menu = document.getElementById('slash-menu');
+    return !!menu && menu.style.display !== 'none' && slashMenuItems.length > 0;
 }
 
 // ── Helpers ──

@@ -71,6 +71,14 @@ export interface ModelInfo {
     name?: string;
 }
 
+export interface SkillInfo {
+    name: string;
+    description: string;
+    filePath: string;
+    source: string;
+    disableModelInvocation: boolean;
+}
+
 export interface SessionInfo {
     id: string;
     name?: string;
@@ -102,14 +110,16 @@ export type ClientMessage =
     | { type: 'createTab' }
     | { type: 'closeTab'; tabId: string }
     | { type: 'switchTab'; tabId: string }
-    | { type: 'openSettings' };
+    | { type: 'openSettings' }
+    | { type: 'getSkills' };
 
 // Settings webview -> Extension messages
 export type SettingsClientMessage =
     | { type: 'getSettings' }
     | { type: 'updateSetting'; key: string; value: any }
     | { type: 'setApiKey'; provider: string; key: string }
-    | { type: 'clearApiKey'; provider: string };
+    | { type: 'clearApiKey'; provider: string }
+    | { type: 'getSkills' };
 
 // Extension -> Webview messages
 export type ServerMessage =
@@ -124,10 +134,12 @@ export type ServerMessage =
     | { type: 'confirmResult'; action: string; confirmed: boolean; payload?: any }
     | { type: 'toolCallPending'; pending: ToolCallPendingInfo }
     | { type: 'toolCallResolved'; toolCallId: string }
+    | { type: 'skills'; skills: SkillInfo[] }
     | { type: 'error'; message: string };
 
 // Extension -> Settings webview messages
 export type SettingsServerMessage =
     | { type: 'settings'; data: SettingsData }
     | { type: 'settingChanged'; key: string; value: any }
+    | { type: 'skills'; skills: SkillInfo[] }
     | { type: 'error'; message: string };

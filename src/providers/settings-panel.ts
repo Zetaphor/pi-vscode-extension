@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { SettingsClientMessage, SettingsServerMessage, SettingsData } from '../shared/protocol';
+import type { SettingsClientMessage, SettingsServerMessage, SettingsData, SkillInfo } from '../shared/protocol';
 
 const API_KEY_PREFIX = 'pi-agent.apiKey.';
 
@@ -74,6 +74,9 @@ export class SettingsPanel {
                     await this._secrets.delete(`${API_KEY_PREFIX}${msg.provider}`);
                     await this._sendSettings();
                     break;
+                case 'getSkills':
+                    await this._sendSkills();
+                    break;
             }
         } catch (err: any) {
             this._post({ type: 'error', message: err.message ?? String(err) });
@@ -112,6 +115,27 @@ export class SettingsPanel {
         };
 
         this._post({ type: 'settings', data });
+    }
+
+    private async _sendSkills(): Promise<void> {
+        try {
+            const { loadSkills } = await import('@mariozechner/pi-coding-agent');
+            const path = require('path');
+            const os = require('os');
+            const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+            const agentDir = path.join(os.homedir(), '.pi', 'agent');
+            const { skills: rawSkills } = loadSkills({ cwd, agentDir, skillPaths: [], includeDefaults: true });
+            const skills: SkillInfo[] = rawSkills.map((s: any) => ({
+                name: s.name,
+                description: s.description ?? '',
+                filePath: s.filePath ?? '',
+                source: s.sourceInfo?.source ?? '',
+                disableModelInvocation: s.disableModelInvocation ?? false,
+            }));
+            this._post({ type: 'skills', skills });
+        } catch {
+            this._post({ type: 'skills', skills: [] });
+        }
     }
 
     private _detectAuthMethod(provider: string, hasManualKey: boolean): SettingsData['authMethod'] {

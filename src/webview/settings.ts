@@ -1,4 +1,4 @@
-import type { SettingsClientMessage, SettingsServerMessage, SettingsData } from '../shared/protocol';
+import type { SettingsClientMessage, SettingsServerMessage, SettingsData, SkillInfo } from '../shared/protocol';
 
 declare function acquireVsCodeApi(): {
     postMessage(message: SettingsClientMessage): void;
@@ -9,6 +9,7 @@ declare function acquireVsCodeApi(): {
 const vscode = acquireVsCodeApi();
 
 let currentSettings: SettingsData | null = null;
+let loadedSkills: SkillInfo[] = [];
 
 window.addEventListener('message', (event) => {
     const msg = event.data as SettingsServerMessage;
@@ -22,6 +23,10 @@ window.addEventListener('message', (event) => {
                 (currentSettings as any)[msg.key] = msg.value;
                 render(currentSettings);
             }
+            break;
+        case 'skills':
+            loadedSkills = msg.skills;
+            renderSkillsSection();
             break;
         case 'error':
             showToast(msg.message, 'error');
@@ -81,12 +86,17 @@ function render(data: SettingsData): void {
             `Warn when context usage exceeds ${data.contextUsageWarningThreshold}% of the context window.`),
     ]));
 
+    const skillsSection = buildSection('Skills', [buildSkillsPlaceholder()]);
+    skillsSection.id = 'skills-section';
+    container.appendChild(skillsSection);
+
     container.appendChild(buildSection('Keyboard Shortcuts', [
         buildShortcutsInfo(),
     ]));
 
     app.appendChild(container);
     bindEvents();
+    renderSkillsSection();
 }
 
 function buildSection(title: string, children: HTMLElement[]): HTMLElement {
@@ -239,6 +249,38 @@ function buildShortcutsInfo(): HTMLElement {
     return row;
 }
 
+function buildSkillsPlaceholder(): HTMLElement {
+    const row = el('div', 'setting-row');
+    row.id = 'skills-list';
+    row.innerHTML = `<p class="setting-description">Loading skills...</p>`;
+    return row;
+}
+
+function renderSkillsSection(): void {
+    const container = document.getElementById('skills-list');
+    if (!container) return;
+
+    if (loadedSkills.length === 0) {
+        container.innerHTML = `<p class="setting-description">No skills found. Place <code>SKILL.md</code> files in <code>~/.pi/agent/skills/</code> or <code>.pi/skills/</code> in your workspace.</p>`;
+        return;
+    }
+
+    container.innerHTML = loadedSkills.map(skill => {
+        const invocation = skill.disableModelInvocation
+            ? '<span class="skill-badge">manual only</span>'
+            : '';
+        return `<div class="skill-card">
+            <div class="skill-card-header">
+                <span class="skill-card-name">/skill:${escHtml(skill.name)}</span>
+                ${invocation}
+            </div>
+            ${skill.description ? `<p class="skill-card-desc">${escHtml(skill.description)}</p>` : ''}
+            <p class="skill-card-path">${escHtml(skill.filePath)}</p>
+            ${skill.source ? `<span class="skill-card-source">${escHtml(skill.source)}</span>` : ''}
+        </div>`;
+    }).join('');
+}
+
 function bindEvents(): void {
     document.querySelectorAll('.setting-select').forEach((select) => {
         select.addEventListener('change', () => {
@@ -351,3 +393,4 @@ function escHtml(s: string): string {
 }
 
 vscode.postMessage({ type: 'getSettings' });
+vscode.postMessage({ type: 'getSkills' });

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { AgentSession, AgentSessionEvent, SessionManager, ModelRegistry } from '@mariozechner/pi-coding-agent';
-import type { SerializedAgentState, ModelInfo, SessionInfo, ContextUsageInfo } from '../shared/protocol';
+import type { SerializedAgentState, ModelInfo, SessionInfo, ContextUsageInfo, SkillInfo } from '../shared/protocol';
 import { EventRouter } from './events';
 import { getAuthStorage, disposeAuthStorage } from './auth';
 import { getModelRegistry, getAvailableModels, findModel, disposeModelRegistry } from './models';
@@ -246,6 +246,22 @@ export class PiSessionManager {
             };
         } catch {
             this._outputChannel.appendLine('Tool approval hook: extension runner not available, skipping');
+        }
+    }
+
+    getSkills(): SkillInfo[] {
+        if (!this._session) return [];
+        try {
+            const { skills } = this._session.resourceLoader.getSkills();
+            return skills.map((s: any) => ({
+                name: s.name,
+                description: s.description ?? '',
+                filePath: s.filePath ?? '',
+                source: s.sourceInfo?.source ?? '',
+                disableModelInvocation: s.disableModelInvocation ?? false,
+            }));
+        } catch {
+            return [];
         }
     }
 

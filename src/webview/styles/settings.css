@@ -339,3 +339,51 @@ body {
     color: var(--fg);
     border: 1px solid var(--border);
 }
+
+/* Skill cards */
+.skill-card {
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+.skill-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.skill-card-name {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+}
+.skill-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.skill-card-desc {
+    font-size: 12px;
+    color: var(--fg);
+    margin: 2px 0 4px;
+    opacity: 0.85;
+}
+.skill-card-path {
+    font-size: 11px;
+    color: var(--muted);
+    margin: 2px 0;
+    font-family: var(--vscode-editor-font-family, monospace);
+    word-break: break-all;
+}
+.skill-card-source {
+    font-size: 10px;
+    color: var(--muted);
+    opacity: 0.7;
+}

@@ -384,6 +384,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 case 'getState':
                     this.sendStateSync();
                     break;
+                case 'getSkills': {
+                    const skills = tab.session.getSkills();
+                    this._post({ type: 'skills', skills });
+                    break;
+                }
                 case 'approveToolCall':
                     this._resolveToolApproval(tab, msg.toolCallId, true);
                     break;
