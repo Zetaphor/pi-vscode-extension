@@ -25,6 +25,12 @@ Watch the agent's reasoning in real time with collapsible thinking blocks. Cycle
 ### Model Selection
 Pick from any model available through the Pi agent's model registry via a quick-pick menu or the in-chat model picker. Recently used models are surfaced for fast switching.
 
+### Settings Page
+A dedicated settings panel (accessible via the gear icon in the sidebar header or the `Pi: Open Settings` command) provides configuration for API connection, default model and thinking level, tool execution behavior, and session management. API keys are stored securely via VS Code's SecretStorage and never written to disk in plaintext.
+
+### Tool Approval
+When auto-approve is disabled (the default), each tool call pauses execution and shows an inline approval card in the chat with the tool name, arguments preview, and Approve/Reject buttons. This gives you full control over what the agent executes before it happens.
+
 ### Context Usage
 Token usage and context window utilization are displayed in both the chat footer and the status bar tooltip.
 
@@ -133,13 +139,25 @@ All commands are available from the command palette (`Ctrl+Shift+P`):
 - **Pi: Select Model** — Choose an AI model from the available providers
 - **Pi: Toggle Thinking Level** — Cycle through thinking verbosity levels
 - **Pi: Focus Chat** — Bring focus to the Pi Agent sidebar
+- **Pi: Open Settings** — Open the Pi Agent settings page
 
 ## Settings
 
+Settings can be configured through the dedicated settings page (gear icon in the sidebar) or via VS Code's standard settings editor.
+
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `pi-agent.thinkingLevel` | `string` | `off` | Default thinking level for agent responses (`off`, `minimal`, `low`, `medium`, `high`) |
-| `pi-agent.autoApproveTools` | `boolean` | `false` | Automatically approve tool executions without confirmation |
+| `pi-agent.apiProvider` | `string` | `""` | Preferred AI provider (anthropic, openai, google, deepseek). Leave empty for auto-detect. |
+| `pi-agent.apiBaseUrl` | `string` | `""` | Custom API base URL for proxies or self-hosted endpoints |
+| `pi-agent.defaultModel` | `string` | `""` | Default model ID for new sessions (e.g. `claude-sonnet-4-20250514`) |
+| `pi-agent.thinkingLevel` | `string` | `off` | Default thinking level (`off`, `minimal`, `low`, `medium`, `high`) |
+| `pi-agent.autoApproveTools` | `boolean` | `false` | Auto-approve tool executions without confirmation |
+| `pi-agent.allowedTools` | `string[]` | `[]` | Restrict which tools the agent can use. Empty = allow all. |
+| `pi-agent.autoSaveSessions` | `boolean` | `true` | Automatically persist sessions |
+| `pi-agent.sessionStoragePath` | `string` | `""` | Custom session storage path. Empty = workspace `.pi/` directory. |
+| `pi-agent.contextUsageWarningThreshold` | `number` | `80` | Warn when context usage exceeds this percentage |
+
+API keys are managed through the settings page and stored via VS Code's SecretStorage (never in `settings.json`).
 
 ## Architecture
 
@@ -178,9 +196,10 @@ All commands are available from the command palette (`Ctrl+Shift+P`):
 ```
 
 - **Extension host** (`src/extension.ts`) registers providers and commands on activation.
-- **SidebarProvider** (`src/providers/sidebar.ts`) manages tabs, each containing an independent `PiSessionManager`, `DiffManager`, and `CheckpointManager`.
-- **Webview** (`src/webview/main.ts`) renders the chat UI and communicates with the extension host via typed messages defined in `src/shared/protocol.ts`.
-- **PiSessionManager** (`src/pi/session.ts`) wraps `createAgentSession` from `@mariozechner/pi-coding-agent`, handling prompt/steer/follow-up/abort lifecycle.
+- **SidebarProvider** (`src/providers/sidebar.ts`) manages tabs, each containing an independent `PiSessionManager`, `DiffManager`, and `CheckpointManager`. Also handles tool approval round-trips.
+- **SettingsPanel** (`src/providers/settings-panel.ts`) opens a `WebviewPanel` in the editor area for the settings page, backed by VS Code's configuration API and `SecretStorage`.
+- **Webview** (`src/webview/main.ts`) renders the chat UI, inline tool approval cards, and communicates with the extension host via typed messages defined in `src/shared/protocol.ts`.
+- **PiSessionManager** (`src/pi/session.ts`) wraps `createAgentSession` from `@mariozechner/pi-coding-agent`, handling prompt/steer/follow-up/abort lifecycle. Reads configuration on session creation and installs tool approval hooks via the SDK's extension runner.
 - **DiffManager** (`src/providers/diff.ts`) tracks file changes from `edit`/`write` tool calls and provides unified diffs via a `pi-diff:` virtual document scheme.
 - **CheckpointManager** (`src/providers/checkpoint.ts`) snapshots file state per turn for rollback and redo.
 
@@ -197,7 +216,8 @@ src/
 │   ├── auth.ts               # Auth storage singleton
 │   └── events.ts             # Event router for agent events
 ├── providers/
-│   ├── sidebar.ts            # Webview provider, tab management
+│   ├── sidebar.ts            # Webview provider, tab management, tool approval
+│   ├── settings-panel.ts     # Settings page (WebviewPanel)
 │   ├── diff.ts               # File change tracking, VS Code diff integration
 │   ├── checkpoint.ts         # Per-turn snapshots, rollback/redo
 │   └── status-bar.ts         # Status bar item
@@ -205,7 +225,10 @@ src/
 │   └── diff.ts               # Myers diff algorithm, unified diff formatting
 ├── webview/
 │   ├── main.ts               # Chat UI application
-│   └── styles/main.css       # Webview styles
+│   ├── settings.ts           # Settings page UI
+│   └── styles/
+│       ├── main.css          # Chat webview styles
+│       └── settings.css      # Settings page styles
 └── test/
     ├── unit/                  # Vitest unit tests
     └── integration/           # VS Code integration tests

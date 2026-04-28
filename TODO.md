@@ -1,2 +1,1 @@
 * Queued messages
-* Settings
